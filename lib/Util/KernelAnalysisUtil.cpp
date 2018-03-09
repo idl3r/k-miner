@@ -68,6 +68,7 @@ bool analysisUtil::hasStructTypePointer(llvm::StructType *structTy) {
  */
 DISubprogram* analysisUtil::getDISubprogramOfFunction(const llvm::Function *F) 
 {
+#if 0
 	NamedMDNode* CU_Nodes = F->getParent()->getNamedMetadata("llvm.dbg.cu");
 	if(CU_Nodes) {
 		for (unsigned i = 0, e = CU_Nodes->getNumOperands(); i != e; ++i) {
@@ -79,6 +80,7 @@ DISubprogram* analysisUtil::getDISubprogramOfFunction(const llvm::Function *F)
 		}
 
 	}
+#endif
 
 	return NULL;
 }
@@ -90,10 +92,22 @@ u32_t analysisUtil::getSourceLineOfFunction(const llvm::Function *F)
 {
 	u32_t line = 0;
 
+#if 0
 	DISubprogram *SP = getDISubprogramOfFunction(F);
 
 	if(SP)
 		line = SP->getLine();
+#else
+	MDNode *metadata = F->getMetadata(0);
+	if (!metadata) {
+		return line;
+	}
+
+	DILocation *debugLoc = dyn_cast<DILocation>(metadata);
+	if (debugLoc) {
+		line = debugLoc->getLine();
+	}
+#endif
 
 	return line;
 }
@@ -119,6 +133,7 @@ u32_t analysisUtil::getSourceLine(const Value* val) {
 			line = Loc->getLine();
 		}
 	}
+	#if 0
 	else if (const GlobalVariable* gvar = dyn_cast<GlobalVariable>(val)) {
 		NamedMDNode* CU_Nodes = gvar->getParent()->getNamedMetadata("llvm.dbg.cu");
 		if(CU_Nodes) {
@@ -131,6 +146,7 @@ u32_t analysisUtil::getSourceLine(const Value* val) {
 			}
 		}
 	}
+	#endif
 	else if (const Function* func = dyn_cast<Function>(val)) {
 		line = getSourceLineOfFunction(func);
 	}
@@ -145,10 +161,23 @@ std::string analysisUtil::getSourceFileNameOfFunction(const llvm::Function *F)
 {
 	std::string fileName = "Unknown";
 
+#if 0
 	DISubprogram *SP = getDISubprogramOfFunction(F);
 
 	if(SP)
 		fileName = SP->getFilename();
+#else
+	MDNode *metadata = F->getMetadata(0);
+	if (!metadata) {
+		return fileName;
+	}
+
+	DILocation *debugLoc = dyn_cast<DILocation>(metadata);
+	if (debugLoc) {
+		fileName = debugLoc->getFilename();
+	}
+#endif
+
 
 	return fileName;
 }
@@ -175,6 +204,7 @@ std::string analysisUtil::getSourceFileName(const Value* val) {
 			fileName = Loc->getFilename();
 		}
 	}
+	#if 0
 	else if (const GlobalVariable* gvar = dyn_cast<GlobalVariable>(val)) {
 		NamedMDNode* CU_Nodes = gvar->getParent()->getNamedMetadata("llvm.dbg.cu");
 		if(CU_Nodes) {
@@ -187,6 +217,7 @@ std::string analysisUtil::getSourceFileName(const Value* val) {
 			}
 		}
 	}
+	#endif
 	else if (const Function* func = dyn_cast<Function>(val)) {
 		fileName = getSourceFileNameOfFunction(func);
 	}

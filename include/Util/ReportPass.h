@@ -43,8 +43,8 @@ public:
 		return false;
 	}
 
-	virtual const char* getPassName() const {
-		return "ReportPass";
+	virtual llvm::StringRef getPassName() const {
+		return llvm::StringRef("ReportPass");
 	}
 
 	virtual void getAnalysisUsage(llvm::AnalysisUsage& au) const {

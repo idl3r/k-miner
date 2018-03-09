@@ -210,7 +210,7 @@ const Value * analysisUtil::stripConstantCasts(const Value *val) {
 /*!
  * Strip all casts
  */
-const Value * analysisUtil::stripAllCasts(Value *val) {
+const Value * analysisUtil::stripAllCasts(const Value *val) {
     while (true) {
         if (const CastInst *ci = dyn_cast<CastInst>(val)) {
             val = ci->getOperand(0);

@@ -485,7 +485,7 @@ inline const llvm::BasicBlock* getFunExitBB(const llvm::Function* fun) {
 const llvm::Value * stripConstantCasts(const llvm::Value *val);
 
 /// Strip off the all casts
-const llvm::Value *stripAllCasts(llvm::Value *val) ;
+const llvm::Value *stripAllCasts(const llvm::Value *val) ;
 
 /// Return corresponding constant expression, otherwise return NULL
 //@{

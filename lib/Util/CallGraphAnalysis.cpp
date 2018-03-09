@@ -17,7 +17,7 @@ void LocalCallGraphAnalysis::analyze(std::string startFunc, bool forward,
 						bool broad, uint32_t maxDepth) {
 
 	this->broad = broad;
-	const llvm::Function *F = getGraph()->getModule()->getFunction(startFunc);
+	const llvm::Function *F = getGraph()->getModule().getFunction(startFunc);
 
 	if(F == nullptr) {
 		#pragma omp critical (findAliasFunc)
@@ -264,7 +264,7 @@ void LocalCallGraphAnalysis::handleAssignments(const CGDPItem &item, llvm::Instr
 }
 
 void LocalCallGraphAnalysis::handleCE(const CGDPItem &item, const Value *val) {
-	const llvm::Module *M = getGraph()->getModule();
+	const llvm::Module *M = getGraph()->getModule().getModule(0);
 
 	if (const Constant* conVal = dyn_cast<Constant>(val)) {
 		const Value* ref;
@@ -408,7 +408,7 @@ const InstSet& LocalCallGraphAnalysis::getCallSiteInstSet(std::string callerName
 }
 
 bool LocalCallGraphAnalysis::isFunctionPtr(const llvm::Value *v) const {
-	const llvm::Module *M = getGraph()->getModule();
+	const llvm::Module *M = getGraph()->getModule().getModule(0);
 	std::string valueName = v->getName();
 
 	if(v->hasName() && valueName.find("descriptor") != std::string::npos)
@@ -418,7 +418,7 @@ bool LocalCallGraphAnalysis::isFunctionPtr(const llvm::Value *v) const {
 }
 
 llvm::Function* LocalCallGraphAnalysis::findAliasFunc(std::string funcName) {
-	llvm::Module *M = getGraph()->getModule();
+	llvm::Module *M = getGraph()->getModule().getModule(0);
 	std::string aliaseeName;
 
 	for(auto iter = M->alias_begin(); iter != M->alias_end(); ++iter) {

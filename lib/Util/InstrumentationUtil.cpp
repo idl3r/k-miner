@@ -26,16 +26,17 @@ void instrumentationUtil::initializeParameterLocal(llvm::Function *F) {
 
 	if (!F) return;
 
-	for(auto &iter : F->getArgumentList()) {
-		std::string argName = iter.getName();
-		llvm::Type *ty = iter.getType();
+	// for(auto &iter : F->getArgumentList()) {
+	for (auto iter = F->arg_begin(); iter != F->arg_end(); iter++) {
+		std::string argName = iter->getName();
+		llvm::Type *ty = iter->getType();
 		int rec_counter = 0;
 
 		if(llvm::PointerType *ptrTy = dyn_cast<llvm::PointerType>(ty)) {
 			llvm::Instruction *I = initLocal(ptrTy, &label_entry, 
 						&*label_entry.begin(), rec_counter);
 			if(I) {
-				iter.replaceAllUsesWith(I);
+				iter->replaceAllUsesWith(I);
 			}
 		}
 	}
@@ -50,7 +51,7 @@ llvm::AllocaInst* instrumentationUtil::initLocal(llvm::PointerType *ptrTy,
 	std::string newArgName = "arg";
 
 	if(llvm::StructType *structTy = dyn_cast<llvm::StructType>(elemTy)) {
-  		ptr_arg = new AllocaInst(structTy, newArgName);
+  		ptr_arg = new AllocaInst(structTy, 0, newArgName);
 		ptr_arg->insertAfter(posInst);
 		ptr_arg->setAlignment(8);
 		initStructType(structTy, label_entry, ptr_arg, rec_counter);
