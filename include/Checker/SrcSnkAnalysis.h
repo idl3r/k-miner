@@ -54,9 +54,8 @@ public:
 		ptaCallGraph = ander->getPTACallGraph();
 
 		if (svfgBuilder == NULL) {
-			svfg = new SVFGOPT(ptaCallGraph);
 			svfgBuilder = new KernelSVFGBuilder();
-			svfgBuilder->build(svfg,ander);
+			svfg = svfgBuilder->buildSVFG(ander);
 		} else {
 			svfg = svfgBuilder->getSVFG();
 		}

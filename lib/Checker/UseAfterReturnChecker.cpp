@@ -111,10 +111,8 @@ void UseAfterReturnChecker::initialize(llvm::Module& module) {
 	ander = AndersenWaveDiff::createAndersenWaveDiff(module);
 	init_t = omp_get_wtime(); 
 	
-	SVFG *svfg = new SVFGOPT(ander->getPTACallGraph());
-	init_t = omp_get_wtime(); 
-
-	svfgBuilder.build(svfg,ander);
+	SVFG *svfg = svfgBuilder.buildSVFG(ander);
+	init_t = omp_get_wtime(); 	
 
 	setGraph(svfg);
 	

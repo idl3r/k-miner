@@ -190,13 +190,16 @@ void KernelPartitioner::handleAPIParameter() {
 	}
 }
 
+
+static LLVMContext TheContext;
 void KernelPartitioner::addInitcallsToAPICxt() {
 	if(!isa<Systemcall>(kernelCxt->getAPI()))
 		return;
 
 	KernelContextObj *api = kernelCxt->getAPI();
 	const IntToStrSet initcallLevelMap =  kernelCxt->getInitcallLevelMap();
-	llvm::LLVMContext &ctx = getGlobalContext();
+	// llvm::LLVMContext &ctx = getGlobalContext();
+	llvm::LLVMContext &ctx = TheContext;
 	llvm::IntegerType *intType = IntegerType::getInt32Ty(ctx);
 
 	for(const auto &iter : api->getContextRoot()) {

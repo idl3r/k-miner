@@ -33,8 +33,8 @@ public:
 		return false;
 	}
 
-	virtual const char* getPassName() const {
-		return checkerName.c_str();	
+	virtual llvm::StringRef getPassName() const {
+		return llvm::StringRef(checkerName.c_str());	
 	}
 
 	virtual void getAnalysisUsage(llvm::AnalysisUsage& au) const {
