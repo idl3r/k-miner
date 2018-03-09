@@ -25,7 +25,8 @@
 #include <llvm/Support/PrettyStackTrace.h>
 #include <llvm/IR/LLVMContext.h>		
 #include <llvm/Support/SourceMgr.h> 	
-#include <llvm/Bitcode/ReaderWriter.h>
+#include <llvm/Bitcode/BitcodeReader.h>
+#include <llvm/Bitcode/BitcodeWriter.h>
 #include <llvm/Transforms/Utils/Cloning.h>
 #include <omp.h>
 
@@ -156,17 +157,19 @@ void startAnalysis(llvm::Module &module) {
 	postprocessing(module);
 }
 
+static LLVMContext TheContext;
+
 int main(int argc, char ** argv) {
 
-	sys::PrintStackTraceOnErrorSignal();
+	sys::PrintStackTraceOnErrorSignal("kminer");
 	llvm::PrettyStackTraceProgram X(argc, argv);
 
-	LLVMContext &Context = getGlobalContext();
+	LLVMContext &Context = TheContext;
 
 	std::string OutputFilename;
 
 	cl::ParseCommandLineOptions(argc, argv, "Software Bug Check\n");
-	sys::PrintStackTraceOnErrorSignal();
+	sys::PrintStackTraceOnErrorSignal("kminer");
 
 	PassRegistry &Registry = *PassRegistry::getPassRegistry();
 
