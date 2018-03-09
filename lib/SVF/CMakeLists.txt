@@ -15,6 +15,8 @@ set(SOURCES
     Util/PathCondAllocator.cpp
     Util/PTAStat.cpp
     Util/ThreadAPI.cpp
+    Util/SVFModule.cpp
+    Util/CPPUtil.cpp
     MemoryModel/ConsG.cpp
     MemoryModel/LocationSet.cpp
     MemoryModel/LocMemModel.cpp
@@ -22,6 +24,7 @@ set(SOURCES
     MemoryModel/PAGBuilder.cpp
     MemoryModel/PAG.cpp
     MemoryModel/PointerAnalysis.cpp
+    MemoryModel/CHA.cpp
     MSSA/MemPartition.cpp
     MSSA/MemRegion.cpp
     MSSA/MemSSA.cpp
