@@ -2,8 +2,8 @@
 //
 //                     SVF: Static Value-Flow Analysis
 //
-// Copyright (C) <2013-2016>  <Yulei Sui>
-// Copyright (C) <2013-2016>  <Jingling Xue>
+// Copyright (C) <2013-2017>  <Yulei Sui>
+//
 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -24,22 +24,23 @@
  * AnalysisUtil.h
  *
  *  Created on: Apr 11, 2013
- *      Author: Yulei Sui
+ *      Author: Yulei Sui, dye
  */
 
 #ifndef AnalysisUtil_H_
 #define AnalysisUtil_H_
 
+#include "Util/SVFModule.h"
 #include "Util/ExtAPI.h"
 #include "Util/ThreadAPI.h"
 #include "Util/BasicTypes.h"
 #include <llvm/IR/Instructions.h>
 #include <llvm/IR/DebugInfo.h>
-#include <llvm/IR/GlobalVariable.h>	// for GlobalVariable
+#include <llvm/IR/GlobalVariable.h> // for GlobalVariable
 #include <llvm/IR/Function.h>
-#include <llvm/IR/InstrTypes.h>	// for TerminatorInst
+#include <llvm/IR/InstrTypes.h> // for TerminatorInst
 #include <llvm/IR/DebugInfoMetadata.h>
-#include <llvm/IR/IntrinsicInst.h>	// for intrinsic instruction
+#include <llvm/IR/IntrinsicInst.h> // for intrinsic instruction
 #include <llvm/IR/Module.h>
 #include <llvm/IR/Constants.h>				// constants
 #include <llvm/IR/CallSite.h>		// callsite
@@ -48,8 +49,7 @@
 #include <llvm/Support/Debug.h>		// debug with types
 #include <time.h>
 
-
-#define NUMDIGITS(n) ({n > 0 ? (int) log10 ((double) n) + 1 : 1;})
+#define NUMDIGITS(n) ({ n > 0 ? (int) log10((double) n) + 1 : 1; })
 
 /*
  * Util class to assist pointer analysis
@@ -79,12 +79,23 @@ inline llvm::CallSite getLLVMCallSite(const llvm::Instruction* inst) {
     llvm::CallSite cs(const_cast<llvm::Instruction*>(inst));
     return cs;
 }
+
+/// Get the definition of a function across multiple modules
+inline const llvm::Function* getDefFunForMultipleModule(const llvm::Function* fun) {
+	if(fun == NULL) return NULL;
+
+    SVFModule svfModule;
+    if (fun->isDeclaration() && svfModule.hasDefinition(fun))
+        fun = svfModule.getDefinition(fun);
+    return fun;
+}
+
 /// Return callee of a callsite. Return null if this is an indirect call
 //@{
 inline const llvm::Function* getCallee(const llvm::CallSite cs) {
     // FIXME: do we need to strip-off the casts here to discover more library functions
     llvm::Function *callee = llvm::dyn_cast<llvm::Function>(cs.getCalledValue()->stripPointerCasts());
-    return callee;
+    return getDefFunForMultipleModule(callee);
 }
 
 inline const llvm::Function* getCallee(const llvm::Instruction *inst) {
@@ -112,19 +123,55 @@ inline bool isExtCall(const llvm::Instruction *inst) {
 
 /// Return true if the call is a heap allocator/reallocator
 //@{
-/// note that this function is not suppose to be used externally
-inline bool isHeapAllocExtFun(const llvm::Function *fun) {
-    return fun && (ExtAPI::getExtAPI()->is_alloc(fun) || ExtAPI::getExtAPI()->is_realloc(fun));
+/// note that these two functions are not suppose to be used externally
+inline bool isHeapAllocExtFunViaRet(const llvm::Function *fun) {
+    return fun && (ExtAPI::getExtAPI()->is_alloc(fun)
+                   || ExtAPI::getExtAPI()->is_realloc(fun));
+}
+inline bool isHeapAllocExtFunViaArg(const llvm::Function *fun) {
+    return fun && ExtAPI::getExtAPI()->is_arg_alloc(fun);
+}
+
+/// interfaces to be used externally
+inline bool isHeapAllocExtCallViaRet(const llvm::CallSite cs) {
+    bool isPtrTy = cs.getInstruction()->getType()->isPointerTy();
+    return isPtrTy && isHeapAllocExtFunViaRet(getCallee(cs));
+}
+
+inline bool isHeapAllocExtCallViaRet(const llvm::Instruction *inst) {
+    bool isPtrTy = inst->getType()->isPointerTy();
+    return isPtrTy && isHeapAllocExtFunViaRet(getCallee(inst));
+}
+
+inline bool isHeapAllocExtCallViaArg(const llvm::CallSite cs) {
+    return isHeapAllocExtFunViaArg(getCallee(cs));
+}
+
+inline bool isHeapAllocExtCallViaArg(const llvm::Instruction *inst) {
+    return isHeapAllocExtFunViaArg(getCallee(inst));
 }
 
 inline bool isHeapAllocExtCall(const llvm::CallSite cs) {
-    bool isPtrTy = cs.getInstruction()->getType()->isPointerTy();
-    return isPtrTy && isHeapAllocExtFun(getCallee(cs));
+    return isHeapAllocExtCallViaRet(cs) || isHeapAllocExtCallViaArg(cs);
 }
 
 inline bool isHeapAllocExtCall(const llvm::Instruction *inst) {
-    bool isPtrTy = inst->getType()->isPointerTy();
-    return isPtrTy && isHeapAllocExtFun(getCallee(inst));
+    return isHeapAllocExtCallViaRet(inst) || isHeapAllocExtCallViaArg(inst);
+}
+//@}
+
+/// Get the position of argument that holds an allocated heap object.
+//@{
+inline int getHeapAllocHoldingArgPosition(const llvm::Function *fun) {
+    return ExtAPI::getExtAPI()->get_alloc_arg_pos(fun);
+}
+
+inline int getHeapAllocHoldingArgPosition(const llvm::CallSite cs) {
+    return getHeapAllocHoldingArgPosition(getCallee(cs));
+}
+
+inline int getHeapAllocHoldingArgPosition(const llvm::Instruction *inst) {
+    return getHeapAllocHoldingArgPosition(getCallee(inst));
 }
 //@}
 
@@ -162,6 +209,7 @@ inline bool isDeallocExtCall(const llvm::Instruction *inst) {
 }
 //@}
 
+
 /// Return true if the call is a static global call
 //@{
 /// note that this function is not suppose to be used externally
@@ -196,6 +244,33 @@ inline ExtAPI::extf_t extCallTy(const llvm::Function* fun) {
     return ExtAPI::getExtAPI()->get_type(fun);
 }
 
+/// Get the reference type of heap/static object from an allocation site.
+//@{
+inline const llvm::PointerType *getRefTypeOfHeapAllocOrStatic(const llvm::CallSite cs) {
+    const llvm::PointerType *refType = NULL;
+    // Case 1: heap object held by *argument, we should get its element type.
+    if (isHeapAllocExtCallViaArg(cs)) {
+        int argPos = getHeapAllocHoldingArgPosition(cs);
+        const llvm::Value *arg = cs.getArgument(argPos);
+        if (const llvm::PointerType *argType = llvm::dyn_cast<llvm::PointerType>(arg->getType()))
+            refType = llvm::dyn_cast<llvm::PointerType>(argType->getElementType());
+    }
+    // Case 2: heap/static object held by return value.
+    else {
+        assert((isStaticExtCall(cs) || isHeapAllocExtCallViaRet(cs))
+               && "Must be heap alloc via ret, or static allocation site");
+        refType = llvm::dyn_cast<llvm::PointerType>(cs.getType());
+    }
+    assert(refType && "Allocated object must be held by a pointer-typed value.");
+    return refType;
+}
+
+inline const llvm::PointerType *getRefTypeOfHeapAllocOrStatic(const llvm::Instruction *inst) {
+    llvm::CallSite cs(const_cast<llvm::Instruction*>(inst));
+    return getRefTypeOfHeapAllocOrStatic(cs);
+}
+//@}
+
 /// Return true if this is a thread creation call
 ///@{
 inline bool isThreadForkCall(const llvm::CallSite cs) {
@@ -203,6 +278,16 @@ inline bool isThreadForkCall(const llvm::CallSite cs) {
 }
 inline bool isThreadForkCall(const llvm::Instruction *inst) {
     return ThreadAPI::getThreadAPI()->isTDFork(inst);
+}
+//@}
+
+/// Return true if this is a hare_parallel_for call
+///@{
+inline bool isHareParForCall(const llvm::CallSite cs) {
+    return ThreadAPI::getThreadAPI()->isHareParFor(cs);
+}
+inline bool isHareParForCall(const llvm::Instruction *inst) {
+    return ThreadAPI::getThreadAPI()->isHareParFor(inst);
 }
 //@}
 
@@ -246,6 +331,16 @@ inline bool isLockReleaseCall(const llvm::Instruction *inst) {
 }
 //@}
 
+/// Return true if this is a barrier wait call
+//@{
+inline bool isBarrierWaitCall(const llvm::CallSite cs) {
+    return ThreadAPI::getThreadAPI()->isTDBarWait(cs);
+}
+inline bool isBarrierWaitCall(const llvm::Instruction *inst) {
+    return ThreadAPI::getThreadAPI()->isTDBarWait(inst);
+}
+//@}
+
 /// Return thread fork function
 //@{
 inline const llvm::Value* getForkedFun(const llvm::CallSite cs) {
@@ -266,13 +361,35 @@ inline const llvm::Value* getActualParmAtForkSite(const llvm::Instruction *inst)
 }
 //@}
 
+/// Return the task function of the parallel_for rountine
+//@{
+inline const llvm::Value* getTaskFuncAtHareParForSite(const llvm::CallSite cs) {
+    return ThreadAPI::getThreadAPI()->getTaskFuncAtHareParForSite(cs);
+}
+inline const llvm::Value* getTaskFuncAtHareParForSite(const llvm::Instruction *inst) {
+    return ThreadAPI::getThreadAPI()->getTaskFuncAtHareParForSite(inst);
+}
+//@}
+
+/// Return the task data argument of the parallel_for rountine
+//@{
+inline const llvm::Value* getTaskDataAtHareParForSite(const llvm::CallSite cs) {
+    return ThreadAPI::getThreadAPI()->getTaskDataAtHareParForSite(cs);
+}
+inline const llvm::Value* getTaskDataAtHareParForSite(const llvm::Instruction *inst) {
+    return ThreadAPI::getThreadAPI()->getTaskDataAtHareParForSite(inst);
+}
+//@}
+
 /// Return true if this value refers to a object
 bool isObject (const llvm::Value * ref);
 
 // Return true if this value is llvm specific
-inline bool isLLVMSpecific(const llvm::Value *val) {
-	return val->getName() == "llvm.used";
-}	
+inline bool
+isLLVMSpecific(const llvm::Value * val)
+{
+    return val->getName() == "llvm.used";
+}
 
 /// Return true if this function is llvm dbg intrinsic function/instruction
 //@{
@@ -304,11 +421,11 @@ inline bool isProgEntryFunction (const llvm::Function * fun) {
 }
 
 /// Get program entry function from module.
-inline const llvm::Function* getProgEntryFunction(const llvm::Module* mod) {
-    for (llvm::Module::const_iterator it = mod->begin(), eit = mod->end(); it != eit; ++it) {
-        const llvm::Function& fun = *it;
-        if (isProgEntryFunction(&fun))
-            return (&fun);
+inline const llvm::Function* getProgEntryFunction(SVFModule svfModule) {
+    for (SVFModule::const_iterator it = svfModule.begin(), eit = svfModule.end(); it != eit; ++it) {
+        const llvm::Function *fun = *it;
+        if (isProgEntryFunction(fun))
+            return (fun);
     }
     return NULL;
 }
@@ -368,7 +485,7 @@ inline const llvm::BasicBlock* getFunExitBB(const llvm::Function* fun) {
 const llvm::Value * stripConstantCasts(const llvm::Value *val);
 
 /// Strip off the all casts
-const llvm::Value *stripAllCasts(const llvm::Value *val) ;
+const llvm::Value *stripAllCasts(llvm::Value *val) ;
 
 /// Return corresponding constant expression, otherwise return NULL
 //@{
@@ -391,6 +508,22 @@ inline const llvm::ConstantExpr *isInt2PtrConstantExpr(const llvm::Value *val) {
 inline const llvm::ConstantExpr *isPtr2IntConstantExpr(const llvm::Value *val) {
     if(const llvm::ConstantExpr* constExpr = llvm::dyn_cast<llvm::ConstantExpr>(val)) {
         if(constExpr->getOpcode() == llvm::Instruction::PtrToInt)
+            return constExpr;
+    }
+    return NULL;
+}
+
+inline const llvm::ConstantExpr *isCastConstantExpr(const llvm::Value *val) {
+    if(const llvm::ConstantExpr* constExpr = llvm::dyn_cast<llvm::ConstantExpr>(val)) {
+        if(constExpr->getOpcode() == llvm::Instruction::BitCast)
+            return constExpr;
+    }
+    return NULL;
+}
+
+inline const llvm::ConstantExpr *isSelectConstantExpr(const llvm::Value *val) {
+    if(const llvm::ConstantExpr* constExpr = llvm::dyn_cast<llvm::ConstantExpr>(val)) {
+        if(constExpr->getOpcode() == llvm::Instruction::Select)
             return constExpr;
     }
     return NULL;
@@ -447,6 +580,12 @@ bool getMemoryUsageKB(u32_t* vmrss_kb, u32_t* vmsize_kb);
 /// Increase the stack size limit
 void increaseStackSize();
 
+/// Check whether a file is an LLVM IR file
+bool isIRFile(const std::string &filename);
+
+/// Parse argument for multi-module analysis
+void processArguments(int argc, char **argv, int &arg_num, char **arg_value,
+                      std::vector<std::string> &moduleNameVec);
 /*!
  * Compare two PointsTo according to their size and points-to elements.
  * 1. PointsTo with smaller size is smaller than the other;
@@ -466,6 +605,7 @@ inline bool cmpPts (const PointsTo& lpts,const PointsTo& rpts) {
         return false;
     }
 }
-};
+
+}
 
 #endif /* AnalysisUtil_H_ */

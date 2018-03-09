@@ -2,8 +2,8 @@
 //
 //                     SVF: Static Value-Flow Analysis
 //
-// Copyright (C) <2013-2016>  <Yulei Sui>
-// Copyright (C) <2013-2016>  <Jingling Xue>
+// Copyright (C) <2013-2017>  <Yulei Sui>
+//
 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -51,7 +51,7 @@ public:
     typedef std::map<const llvm::Function*,  BasicBlockSet> FunToExitBBsMap;  ///< map a function to all its basic blocks calling program exit
     typedef std::map<const llvm::BasicBlock*, Condition*> BBToCondMap;	///< map a basic block to its condition during control-flow guard computation
     typedef FIFOWorkList<const llvm::BasicBlock*> CFWorkList;	///< worklist for control-flow guard computation
-    typedef std::set<const llvm::Value*> ValueSet;
+    typedef std::set<const llvm::Value *> ValueSet;
 
     /// Constructor
     PathCondAllocator() {
@@ -83,7 +83,7 @@ public:
     //@}
 
     /// Perform path allocation
-    void allocate(const llvm::Module& module);
+    void allocate(const SVFModule module);
 
     /// Get llvm conditional expression
     inline const llvm::TerminatorInst* getCondInst(const Condition* cond) const {
@@ -167,13 +167,17 @@ public:
         return curEvalVal;
     }
     //@}
-    
-    inline void addCondValue(const llvm::Value *V) {
-	condValues.insert(V);
+
+    inline void
+    addCondValue(const llvm::Value * V)
+    {
+        condValues.insert(V);
     }
 
-    inline bool isVisitedCondValue(const llvm::Value *V) const {
-	return condValues.find(V) != condValues.end();
+    inline bool
+    isVisitedCondValue(const llvm::Value * V) const
+    {
+        return condValues.find(V) != condValues.end();
     }
 
     /// Print out the path condition information
@@ -273,7 +277,6 @@ private:
 protected:
     static BddCondManager* bddCondMgr;		///< bbd manager
     BBCondMap bbConds;						///< map basic block to its successors/predecessors branch conditions
-
     ValueSet condValues;
 
 };

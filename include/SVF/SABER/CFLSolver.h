@@ -2,8 +2,8 @@
 //
 //                     SVF: Static Value-Flow Analysis
 //
-// Copyright (C) <2013-2016>  <Yulei Sui>
-// Copyright (C) <2013-2016>  <Jingling Xue>
+// Copyright (C) <2013-2017>  <Yulei Sui>
+//
 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -150,38 +150,64 @@ protected:
     inline bool isInWorklist(DPIm& item) {
         return worklist.find(item);
     }
-    inline void clearWorklist() {
-	worklist.clear();
+
+    inline void
+    clearWorklist()
+    {
+        worklist.clear();
     }
-    //@}
-    
-    //@}
-    /// Workset operations
-    //@{
-    inline DPIm popFromWorkset() {
-	auto iter = workset.begin();
-	DPIm item = *iter;
-	workset.erase(iter);
+
+    // @}
+
+    // @}
+    // / Workset operations
+    // @{
+    inline DPIm
+    popFromWorkset()
+    {
+        auto iter = workset.begin();
+        DPIm item = *iter;
+
+        workset.erase(iter);
         return item;
     }
-    inline void insertIntoWorkset(DPIm& item) {
+
+    inline void
+    insertIntoWorkset(DPIm& item)
+    {
         workset.insert(item);
     }
-    inline void removeFromWorkset(DPIm& item) {
-	workset.erase(item);
+
+    inline void
+    removeFromWorkset(DPIm& item)
+    {
+        workset.erase(item);
     }
-    inline DPIm getFromWorkset(DPIm& item) {
-	return *workset.find(item); 
+
+    inline DPIm
+    getFromWorkset(DPIm& item)
+    {
+        return *workset.find(item);
     }
-    inline bool isWorksetEmpty() {
+
+    inline bool
+    isWorksetEmpty()
+    {
         return workset.empty();
     }
-    inline bool isInWorkset(DPIm& item) {
+
+    inline bool
+    isInWorkset(DPIm& item)
+    {
         return workset.find(item) != workset.end();
     }
-    inline void clearWorkset() {
-	workset.clear();
+
+    inline void
+    clearWorkset()
+    {
+        workset.clear();
     }
+
     //@}
 
 private:

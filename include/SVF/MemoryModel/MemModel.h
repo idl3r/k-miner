@@ -2,8 +2,8 @@
 //
 //                     SVF: Static Value-Flow Analysis
 //
-// Copyright (C) <2013-2016>  <Yulei Sui>
-// Copyright (C) <2013-2016>  <Jingling Xue>
+// Copyright (C) <2013-2017>  <Yulei Sui>
+//
 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -31,6 +31,7 @@
 #define OBJECTANDSYMBOL_H_
 
 #include "MemoryModel/LocationSet.h"
+#include "Util/SVFModule.h"
 
 #include <llvm/IR/CallSite.h>
 #include <llvm/IR/Module.h>
@@ -395,21 +396,24 @@ private:
     static SymbolTableInfo* symlnfo;
 
     /// Module
-    static llvm::Module* mod;
+    SVFModule mod;
 
     /// Max field limit
     static u32_t maxFieldLimit;
 
     /// Invoke llvm passes to modify module
-    void prePassSchedule(llvm::Module& module);
+    void prePassSchedule(SVFModule svfModule);
 
     /// Clean up memory
     void destroy();
 
+    /// Whether to model constants
+    bool modelConstants;
+
 protected:
     /// Constructor
     SymbolTableInfo() :
-        maxStruct(NULL), maxStSize(0) {
+        modelConstants(false), maxStruct(NULL), maxStSize(0) {
     }
 
 public:
@@ -427,12 +431,23 @@ public:
     static SymbolTableInfo* Symbolnfo();
 
     static void releaseSymbolnfo() {
-	if(symlnfo)
-		delete symlnfo;
+        if (symlnfo) {
+            delete symlnfo;
+        }
         symlnfo = NULL;
     }
     virtual ~SymbolTableInfo() {
         destroy();
+    }
+    //@}
+
+    /// Set / Get modelConstants
+    //@{
+    void setModelConstants(bool _modelConstants) {
+        modelConstants = _modelConstants;
+    }
+    bool getModelConstants() const {
+        return modelConstants;
     }
     //@}
 
@@ -444,22 +459,22 @@ public:
     //@}
 
     /// Module
-    static inline llvm::Module* getModule() {
+    inline SVFModule getModule() {
         return mod;
     }
 
     /// Get target machine data layout
-    inline static llvm::DataLayout* getDataLayout(llvm::Module* mod = getModule()) {
+    inline static llvm::DataLayout* getDataLayout(llvm::Module* mod) {
         if(dl==NULL)
             return dl = new llvm::DataLayout(mod);
         return dl;
     }
 
     /// Helper method to get the size of the type from target data layout
-    static u32_t getTypeSizeInBytes(const llvm::Type* type);
+    u32_t getTypeSizeInBytes(const llvm::Type* type);
 
     /// Start building memory model
-    void buildMemModel(llvm::Module& module);
+    void buildMemModel(SVFModule svfModule);
 
     /// collect the syms
     //@{
@@ -480,7 +495,7 @@ public:
 
     static bool isBlackholeSym(const llvm::Value *val);
 
-    static bool isConstantObjSym(const llvm::Value *val);
+    bool isConstantObjSym(const llvm::Value *val);
 
     static inline bool isBlkPtr(NodeID id) {
         return (id == BlkPtr);
@@ -552,7 +567,6 @@ public:
         else if(isBlackholeSym(val))
             return blkPtrSymID();
         else {
-//		llvm::outs() << "getValSym " << val->getName() << "\n";
             ValueToIDMapTy::const_iterator iter =  valSymMap.find(val);
             assert(iter!=valSymMap.end() &&"value sym not found");
             return iter->second;
@@ -567,6 +581,11 @@ public:
     }
 
     inline SymID getObjSym(const llvm::Value *val) const {
+        /// find the unique defined global across multiple modules
+        if(const llvm::GlobalVariable* gvar = llvm::dyn_cast<llvm::GlobalVariable>(val)) {
+            if (symlnfo->getModule().hasGlobalRep(gvar))
+                val = symlnfo->getModule().getGlobalRep(gvar);
+        }
         ValueToIDMapTy::const_iterator iter =  objSymMap.find(val);
         assert(iter!=objSymMap.end() && "obj sym not found");
         return iter->second;
@@ -655,10 +674,10 @@ public:
 
     /// Compute gep offset
     virtual bool computeGepOffset(const llvm::User *V, LocationSet& ls);
-    /// Get max offset
-    std::vector<LocationSet> getFlattenedFields(const llvm::Value *V);
+    /// Get the base type and max offset
+    const llvm::Type *getBaseTypeAndFlattenedFields(const llvm::Value *V, std::vector<LocationSet> &fields);
     /// Replace fields with flatten fields of T if the number of its fields is larger than msz.
-    Size_t getFields(std::vector<LocationSet>& fields, const llvm::Type* T, Size_t msz);
+    u32_t getFields(std::vector<LocationSet>& fields, const llvm::Type* T, u32_t msz);
     /// Collect type info
     void collectTypeInfo(const llvm::Type* T);
     /// Given an offset from a Gep Instruction, return it modulus offset by considering memory layout

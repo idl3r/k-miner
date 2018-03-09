@@ -2,8 +2,8 @@
 //
 //                     SVF: Static Value-Flow Analysis
 //
-// Copyright (C) <2013-2016>  <Yulei Sui>
-// Copyright (C) <2013-2016>  <Jingling Xue>
+// Copyright (C) <2013-2017>  <Yulei Sui>
+//
 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -45,72 +45,64 @@ using namespace svfgAnalysisUtil;
  * Guard(path_i) = \bigwedge VFGGuard(x,y),  suppose (x,y) are two SVFGNode nodes on path_i
  */
 void ProgSlice::AllPathReachableSolve() {
-	const SVFGNode* source = getSource();
-	VFWorkList worklist;
-	worklist.push(source);
-	/// mark source node conditions to be true
-	setVFCond(source,getTrueCond());
+    const SVFGNode* source = getSource();
+    VFWorkList worklist;
+    worklist.push(source);
+    /// mark source node conditions to be true
+    setVFCond(source,getTrueCond());
 
-	// Iterate through the path from the source
-	while(!worklist.empty()) {
-		const SVFGNode* node = worklist.pop();
-		setCurSVFGNode(node);
-		// Get all prev conditions AND-connected
-		Condition* cond = getVFCond(node);
-		// Iterate through a node
-		for(SVFGNode::const_iterator it = node->OutEdgeBegin(), eit = node->OutEdgeEnd(); it!=eit; ++it) {
-			const SVFGEdge* edge = (*it);
-			// Successors - List of BasicBlocks that are reachable directly from nodes 
-			// in this interval, but are not in the interval themselves. 
-			// These nodes necessarily must be header nodes for other intervals. 
-			const SVFGNode* succ = edge->getDstNode();
+    // Iterate through the path from the source
+    while(!worklist.empty()) {
+        const SVFGNode* node = worklist.pop();
+        setCurSVFGNode(node);
+        // Get all prev conditions AND-connected
+        Condition* cond = getVFCond(node);
+        // Iterate through a node
+        for(SVFGNode::const_iterator it = node->OutEdgeBegin(), eit = node->OutEdgeEnd(); it!=eit; ++it) {
+            const SVFGEdge* edge = (*it);
+            // Successors - List of BasicBlocks that are reachable directly from nodes
+            // in this interval, but are not in the interval themselves.
+            // These nodes necessarily must be header nodes for other intervals.
+            const SVFGNode* succ = edge->getDstNode();
+            if(inBackwardSlice(succ)) {
+                Condition* vfCond = NULL;
+                const BasicBlock* nodeBB = getSVFGNodeBB(node);
+                const BasicBlock* succBB = getSVFGNodeBB(succ);
 
-			// Check if the node was visited during the backwarding. 
-			// If not, this path wont reach a sink.
-			if(inBackwardSlice(succ)) {
-				Condition* vfCond = NULL;
-				const BasicBlock* nodeBB = getSVFGNodeBB(node);
-				const BasicBlock* succBB = getSVFGNodeBB(succ);
+                // Global objects have no BasicBlock
+                if (!nodeBB || !succBB)
+                    continue;
 
-				// Global objects have no BasicBlock
-				if(!nodeBB || !succBB) 
-					continue;
+                if (!succBB)
+                    std::cout << "SUCCBB is NULL\n" << std::flush;
 
-				if(!succBB)
-					std::cout << "SUCCBB is NULL\n" << std::flush;
+                /// clean up the control flow conditions for next round guard computation
+                clearCFCond();
 
-				/// clean up the control flow conditions for next round guard computation
-				clearCFCond();
+                // The current edge calls a function.
+                // executes ComputeIntraVFGuard two-times: src to call ; call to dst
+                if(edge->isCallVFGEdge()) {
+                    vfCond = ComputeInterCallVFGGuard(nodeBB,succBB, getCallSite(edge).getInstruction()->getParent());
+                }
+                // The current edge returns from a function.
+                // executes ComputeIntraVFGuard two-times: src to exit; exit to dst
+                else if(edge->isRetVFGEdge()) {
+                    vfCond = ComputeInterRetVFGGuard(nodeBB,succBB, getRetSite(edge).getInstruction()->getParent());
+                }
+                else {
+                    vfCond = ComputeIntraVFGGuard(nodeBB,succBB);
+                }
 
-				// The current edge calls a function.
-				// executes ComputeIntraVFGuard two-times: src to call ; call to dst
-				if(edge->isCallVFGEdge()) {
-					vfCond = ComputeInterCallVFGGuard(nodeBB,succBB, getCallSite(edge).getInstruction()->getParent());
-//					std::cout << "CALL: " << succBB->getName().str() << "\n" << std::flush;
-				}
-				// The current edge returns from a function.
-				// executes ComputeIntraVFGuard two-times: src to exit; exit to dst
-				else if(edge->isRetVFGEdge()) {
-					vfCond = ComputeInterRetVFGGuard(nodeBB,succBB, getRetSite(edge).getInstruction()->getParent());
-//					std::cout << "RET: " << succBB->getName().str() << "\n" << std::flush;
-				}
-				// TODO commit
-				else
-					vfCond = ComputeIntraVFGGuard(nodeBB,succBB);
+                Condition* succPathCond = condAnd(cond, vfCond);
+                if(setVFCond(succ,  condOr(getVFCond(succ), succPathCond) ))
+                    worklist.push(succ);
+            }
 
-				Condition* succPathCond = condAnd(cond, vfCond);
-
-				if(setVFCond(succ, condOr(getVFCond(succ), succPathCond) ))
-					worklist.push(succ);
-			}
-
-			DBOUT(DSaber, outs() << " node (" << node->getId() << ":" << 
-					node->getBB()->getName() << ") --> " << "succ (" << 
-					succ->getId() << ":" << succ->getBB()->getName() << 
-					") condition: " << getVFCond(succ) << " = " << 
-					dumpCond(getVFCond(succ)) << "\n");
-		}
-	}
+            DBOUT(DSaber, outs() << " node (" << node->getId() << ":" << node->getBB()->getName() <<
+                  ") --> " << "succ (" << succ->getId() << ":" << succ->getBB()->getName() << ") condition: " << getVFCond(succ) << 
+                  " = " << dumpCond(getVFCond(succ)) << "\n");
+        }
+    }
 
 }
 
@@ -119,18 +111,18 @@ void ProgSlice::AllPathReachableSolve() {
  */
 bool ProgSlice::isSatisfiableForAll() {
 
-	Condition* guard = getFalseCond();
-	DBOUT(DSaber, outs() << "cond = ");
-	for(SVFGNodeSetIter it = sinksBegin(), eit = sinksEnd(); it!=eit; ++it) {
-		DBOUT(DSaber, outs() << dumpCond(getVFCond(*it)) << "(" << (*it)->getId() 
-				<< ")" << " | ");
-		guard = condOr(guard,getVFCond(*it));
-	}
-	DBOUT(DSaber, outs() << "\n");
+    Condition* guard = getFalseCond();
+    DBOUT(DSaber, outs() << "cond = ");
+    for(SVFGNodeSetIter it = sinksBegin(), eit = sinksEnd(); it!=eit; ++it) {
+        DBOUT(DSaber, outs() << dumpCond(getVFCond(*it)) << "(" << (*it)->getId()
+                             << ")" << " | ");
+        guard = condOr(guard,getVFCond(*it));
+    }
+    DBOUT(DSaber, outs() << "\n");
 
-	setFinalCond(guard);
+    setFinalCond(guard);
 
-	return guard == getTrueCond();
+    return guard == getTrueCond();
 }
 
 /*!
@@ -138,68 +130,66 @@ bool ProgSlice::isSatisfiableForAll() {
  */
 bool ProgSlice::isSatisfiableForPairs() {
 
-	for(SVFGNodeSetIter it = sinksBegin(), eit = sinksEnd(); it!=eit; ++it) {
-		for(SVFGNodeSetIter sit = it, esit = sinksEnd(); sit!=esit; ++sit) {
-			if(sit == it)
-				continue;
+    for(SVFGNodeSetIter it = sinksBegin(), eit = sinksEnd(); it!=eit; ++it) {
+        for(SVFGNodeSetIter sit = it, esit = sinksEnd(); sit!=esit; ++sit) {
+            if (sit == it)
+                continue;
 
-			Condition* guard = condAnd(getVFCond(*sit),getVFCond(*it));
+            Condition* guard = condAnd(getVFCond(*sit),getVFCond(*it));
 
-			if(guard != getFalseCond()) {
-				setFinalCond(guard);
-				return false;
-			}
-		}
-	}
+            if(guard != getFalseCond()) {
+                setFinalCond(guard);
+                return false;
+            }
+        }
+    }
 
-	return true;
+    return true;
 }
 
 llvm::CallSite ProgSlice::getCallSite(const SVFGEdge* edge) const {
-	assert(edge->isCallVFGEdge() && "not a call svfg edge?");
-	if(const CallDirSVFGEdge* callEdge = dyn_cast<CallDirSVFGEdge>(edge))
-		return getSVFG()->getCallSite(callEdge->getCallSiteId());
-	else
-		return getSVFG()->getCallSite(cast<CallIndSVFGEdge>(edge)->getCallSiteId());
+    assert(edge->isCallVFGEdge() && "not a call svfg edge?");
+    if(const CallDirSVFGEdge* callEdge = dyn_cast<CallDirSVFGEdge>(edge))
+        return getSVFG()->getCallSite(callEdge->getCallSiteId());
+    else
+        return getSVFG()->getCallSite(cast<CallIndSVFGEdge>(edge)->getCallSiteId());
 }
 llvm::CallSite ProgSlice::getRetSite(const SVFGEdge* edge) const {
-	assert(edge->isRetVFGEdge() && "not a return svfg edge?");
-	if(const RetDirSVFGEdge* callEdge = dyn_cast<RetDirSVFGEdge>(edge))
-		return getSVFG()->getCallSite(callEdge->getCallSiteId());
-	else
-		return getSVFG()->getCallSite(cast<RetIndSVFGEdge>(edge)->getCallSiteId());
+    assert(edge->isRetVFGEdge() && "not a return svfg edge?");
+    if(const RetDirSVFGEdge* callEdge = dyn_cast<RetDirSVFGEdge>(edge))
+        return getSVFG()->getCallSite(callEdge->getCallSiteId());
+    else
+        return getSVFG()->getCallSite(cast<RetIndSVFGEdge>(edge)->getCallSiteId());
 }
 
 /*!
  * Return llvm value for addr/copy/gep/load/phi/actualParam/formalParam/actualRet/formalRet
  * but not for store/mssaphi/actualIn/acutalOut/formalIn/formalOut
  */
-//TODO revisit
 const llvm::Value* ProgSlice::getLLVMValue(const SVFGNode* node) const {
-	if(const StmtSVFGNode* stmt = dyn_cast<StmtSVFGNode>(node)) {
-		if (!isa<DummyValPN>(stmt->getPAGDstNode()) && !isa<DummyObjPN>(stmt->getPAGDstNode())) {
-//		if(isa<StoreSVFGNode>(stmt) == false) {
-			if(stmt->getPAGDstNode()->hasValue())
-				return stmt->getPAGDstNode()->getValue();
-		}
-	}
-	else if(const PHISVFGNode* phi = dyn_cast<PHISVFGNode>(node)) {
-		return phi->getRes()->getValue();
-	}
-	else if(const ActualParmSVFGNode* ap = dyn_cast<ActualParmSVFGNode>(node)) {
-		return ap->getParam()->getValue();
-	}
-	else if(const FormalParmSVFGNode* fp = dyn_cast<FormalParmSVFGNode>(node)) {
-		return fp->getParam()->getValue();
-	}
-	else if(const ActualRetSVFGNode* ar = dyn_cast<ActualRetSVFGNode>(node)) {
-		return ar->getRev()->getValue();
-	}
-	else if(const FormalRetSVFGNode* fr = dyn_cast<FormalRetSVFGNode>(node)) {
-		return fr->getRet()->getValue();
-	}
+    if(const StmtSVFGNode* stmt = dyn_cast<StmtSVFGNode>(node)) {
+        if (!isa<DummyValPN>(stmt->getPAGDstNode()) && !isa<DummyObjPN>(stmt->getPAGDstNode())) {
+            if(stmt->getPAGDstNode()->hasValue())
+                return stmt->getPAGDstNode()->getValue();
+        }
+    }
+    else if(const PHISVFGNode* phi = dyn_cast<PHISVFGNode>(node)) {
+        return phi->getRes()->getValue();
+    }
+    else if(const ActualParmSVFGNode* ap = dyn_cast<ActualParmSVFGNode>(node)) {
+        return ap->getParam()->getValue();
+    }
+    else if(const FormalParmSVFGNode* fp = dyn_cast<FormalParmSVFGNode>(node)) {
+        return fp->getParam()->getValue();
+    }
+    else if(const ActualRetSVFGNode* ar = dyn_cast<ActualRetSVFGNode>(node)) {
+        return ar->getRev()->getValue();
+    }
+    else if(const FormalRetSVFGNode* fr = dyn_cast<FormalRetSVFGNode>(node)) {
+        return fr->getRet()->getValue();
+    }
 
-	return NULL;
+    return NULL;
 }
 
 /*!
@@ -212,22 +202,22 @@ const llvm::Value* ProgSlice::getLLVMValue(const SVFGNode* node) const {
  * CNF formula -- a conjunction of some clauses:  (a \vee b ) \wedge (c \vee d)
  */
 std::string ProgSlice::evalFinalCond() const {
-	std::string str;
-	raw_string_ostream rawstr(str);
-	NodeBS elems = pathAllocator->exactCondElem(finalCond);
-	std::set<std::string> locations;
-	for(NodeBS::iterator it = elems.begin(), eit = elems.end(); it!=eit; ++it) {
-		Condition* atom = pathAllocator->getCond(*it);
-		const TerminatorInst* tinst = pathAllocator->getCondInst(atom);
-		locations.insert(getSourceLoc(tinst));
-	}
-	/// print leak path after eliminating duplicated element
-	for(std::set<std::string>::iterator iter = locations.begin(), eiter = locations.end();
-			iter!=eiter; ++iter) {
-		rawstr << "\t\t  --> (" << *iter << ") \n";
-	}
+    std::string str;
+    raw_string_ostream rawstr(str);
+    NodeBS elems = pathAllocator->exactCondElem(finalCond);
+    std::set<std::string> locations;
+    for(NodeBS::iterator it = elems.begin(), eit = elems.end(); it!=eit; ++it) {
+        Condition* atom = pathAllocator->getCond(*it);
+        const TerminatorInst* tinst = pathAllocator->getCondInst(atom);
+        locations.insert(getSourceLoc(tinst));
+    }
+    /// print leak path after eliminating duplicated element
+    for(std::set<std::string>::iterator iter = locations.begin(), eiter = locations.end();
+            iter!=eiter; ++iter) {
+        rawstr << "\t\t  --> (" << *iter << ") \n";
+    }
 
-	return rawstr.str();
+    return rawstr.str();
 }
 
 /*!
@@ -235,32 +225,28 @@ std::string ProgSlice::evalFinalCond() const {
  */
 void ProgSlice::annotatePaths() {
 
-	SaberAnnotator annotator(this);
-	annotator.annotateSource();
-	annotator.annotateSinks();
+    SaberAnnotator annotator(this);
+    annotator.annotateSource();
+    annotator.annotateSinks();
 
-//	outs() << "printDbg:\n";
-//	pathAllocator->printDbg(finalCond);
-//	outs() << "dumpCond:\n";
-//	outs() << pathAllocator->dumpCond(finalCond) << "\n";
-	NodeBS elems = pathAllocator->exactCondElem(finalCond);
-	for(NodeBS::iterator it = elems.begin(), eit = elems.end(); it!=eit; ++it) {
-		Condition* atom = pathAllocator->getCond(*it);
-		const TerminatorInst* tinst = pathAllocator->getCondInst(atom);
-		if(const BranchInst* br = dyn_cast<BranchInst>(tinst)) {
-			annotator.annotateFeasibleBranch(br,0);
-			annotator.annotateFeasibleBranch(br,1);
-		}
-	}
+    NodeBS elems = pathAllocator->exactCondElem(finalCond);
+    for(NodeBS::iterator it = elems.begin(), eit = elems.end(); it!=eit; ++it) {
+        Condition* atom = pathAllocator->getCond(*it);
+        const TerminatorInst* tinst = pathAllocator->getCondInst(atom);
+        if(const BranchInst* br = dyn_cast<BranchInst>(tinst)) {
+            annotator.annotateFeasibleBranch(br,0);
+            annotator.annotateFeasibleBranch(br,1);
+        }
+    }
 }
 
 
 void ProgSlice::destroy() {
-	/// TODO: how to clean bdd memory
-	//	for(SVFGNodeToCondMap::const_iterator it = svfgNodeToCondMap.begin(), eit = svfgNodeToCondMap.end(); it!=eit; ++it){
-	//		pathAllocator->markForRelease(it->second);
-	//	}
-	//	for(BBToCondMap::const_iterator it = bbToCondMap.begin(), eit = bbToCondMap.end(); it!=eit; ++it){
-	//		pathAllocator->markForRelease(it->second);
-	//	}
+    /// TODO: how to clean bdd memory
+//	for(SVFGNodeToCondMap::const_iterator it = svfgNodeToCondMap.begin(), eit = svfgNodeToCondMap.end(); it!=eit; ++it){
+//		pathAllocator->markForRelease(it->second);
+//	}
+//	for(BBToCondMap::const_iterator it = bbToCondMap.begin(), eit = bbToCondMap.end(); it!=eit; ++it){
+//		pathAllocator->markForRelease(it->second);
+//	}
 }

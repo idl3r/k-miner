@@ -2,8 +2,8 @@
 //
 //                     SVF: Static Value-Flow Analysis
 //
-// Copyright (C) <2013-2016>  <Yulei Sui>
-// Copyright (C) <2013-2016>  <Jingling Xue>
+// Copyright (C) <2013-2017>  <Yulei Sui>
+//
 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -43,7 +43,8 @@ void AndersenWaveDiff::handleCopyGep(ConstraintNode* node)
 {
     computeDiffPts(node->getId());
 
-    AndersenWave::handleCopyGep(node);
+    if (!getDiffPts(node->getId()).empty())
+        AndersenWave::handleCopyGep(node);
 }
 
 /*!
@@ -56,6 +57,7 @@ bool AndersenWaveDiff::processCopy(NodeID node, const ConstraintEdge* edge) {
     assert((isa<CopyCGEdge>(edge)) && "not copy/call/ret ??");
     NodeID dst = edge->getDstID();
     PointsTo& srcDiffPts = getDiffPts(node);
+    processCast(edge);
     if(unionPts(dst,srcDiffPts)) {
         changed = true;
         pushIntoWorklist(dst);

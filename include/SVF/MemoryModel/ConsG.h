@@ -2,8 +2,8 @@
 //
 //                     SVF: Static Value-Flow Analysis
 //
-// Copyright (C) <2013-2016>  <Yulei Sui>
-// Copyright (C) <2013-2016>  <Jingling Xue>
+// Copyright (C) <2013-2017>  <Yulei Sui>
+//
 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -96,7 +96,6 @@ public:
         return getGNode(id);
     }
     inline void addConstraintNode(ConstraintNode* node, NodeID id) {
-//#pragma omp critical (addConstraintNode)
         addGNode(id,node);
     }
     inline bool hasConstraintNode(NodeID id) const {
@@ -218,6 +217,14 @@ public:
     /// Parameter passing
     void connectCaller2CalleeParams(llvm::CallSite cs, const llvm::Function *F, NodePairSet& cpySrcNodes);
 
+    /// Check if a given edge is a NormalGepCGEdge with 0 offset.
+    inline bool isZeroOffsettedGepCGEdge(ConstraintEdge *edge) const {
+        if (NormalGepCGEdge *normalGepCGEdge = llvm::dyn_cast<NormalGepCGEdge>(edge))
+            if (0 == normalGepCGEdge->getLocationSet().getOffset())
+                return true;
+        return false;
+    }
+
     /// Wrappers for invoking PAG methods
     //@{
     inline const PAG::CallSiteToFunPtrMap& getIndirectCallsites() const {
@@ -236,12 +243,8 @@ public:
         return pag->getBaseObjNode(id);
     }
     inline void setObjFieldInsensitive(NodeID id) {
-        MemObj* mem;
-//#pragma omp critical (setObjFieldInsensitive)
-//        {
-        mem = const_cast<MemObj*>(pag->getBaseObj(id));
+        MemObj* mem =  const_cast<MemObj*>(pag->getBaseObj(id));
         mem->setFieldInsensitive();
-//        }
     }
     inline bool isFieldInsensitiveObj(NodeID id) const {
         const MemObj* mem =  pag->getBaseObj(id);
@@ -253,9 +256,7 @@ public:
     }
     /// Get a field of a memory object
     inline NodeID getGepObjNode(NodeID id, const LocationSet& ls) {
-        NodeID gep;  
-//#pragma omp critical (getGepObjNode)
-        gep = pag->getGepObjNode(id,ls);
+        NodeID gep =  pag->getGepObjNode(id,ls);
         /// Create a node when it is (1) not exist on graph and (2) not merged
         if(sccRepNode(gep)==gep && hasConstraintNode(gep)==false)
             addConstraintNode(new ConstraintNode(gep),gep);
@@ -263,9 +264,7 @@ public:
     }
     /// Get a field-insensitive node of a memory object
     inline NodeID getFIObjNode(NodeID id) {
-        NodeID fi; 
-//#pragma omp critical (getFIObjNode)
-        fi = pag->getFIObjNode(id);
+        NodeID fi = pag->getFIObjNode(id);
         /// Create a node when it is (1) not exist on graph and (2) not merged
         if (sccRepNode(fi) == fi && hasConstraintNode(fi)==false)
             addConstraintNode(new ConstraintNode(fi),fi);
@@ -289,14 +288,10 @@ public:
         return (!nodesToBeCollapsed.empty());
     }
     inline void addNodeToBeCollapsed(NodeID id) {
-//#pragma omp critical (nodesToBeCollapsed)
         nodesToBeCollapsed.push(id);
     }
     inline NodeID getNextCollapseNode() {
-            NodeID nodeId;
-//#pragma omp critical (nodesToBeCollapsed)
-        nodeId = nodesToBeCollapsed.pop();
-        return nodeId;
+        return nodesToBeCollapsed.pop();
     }
     //@}
 
@@ -319,6 +314,7 @@ struct GraphTraits<Inverse<ConstraintNode *> > : public GraphTraits<Inverse<Gene
 };
 
 template<> struct GraphTraits<ConstraintGraph*> : public GraphTraits<GenericGraph<ConstraintNode,ConstraintEdge>* > {
+    typedef ConstraintNode *NodeRef;
 };
 
 }

@@ -2,8 +2,8 @@
 //
 //                     SVF: Static Value-Flow Analysis
 //
-// Copyright (C) <2013-2016>  <Yulei Sui>
-// Copyright (C) <2013-2016>  <Jingling Xue>
+// Copyright (C) <2013-2017>  <Yulei Sui>
+//
 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -40,7 +40,7 @@ void IteratedDominanceFrontier::calculate(llvm::BasicBlock * bb,
 
     DomSetType worklist;
 
-    DominanceFrontierBase<llvm::BasicBlock>::const_iterator it = DF.find(bb);
+    DominanceFrontierBase<llvm::BasicBlock, false>::const_iterator it = DF.find(bb);
     assert(it != DF.end());
 
     worklist.insert(it->second.begin(), it->second.end());

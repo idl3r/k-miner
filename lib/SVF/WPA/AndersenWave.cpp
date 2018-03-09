@@ -2,8 +2,8 @@
 //
 //                     SVF: Static Value-Flow Analysis
 //
-// Copyright (C) <2013-2016>  <Yulei Sui>
-// Copyright (C) <2013-2016>  <Jingling Xue>
+// Copyright (C) <2013-2017>  <Yulei Sui>
+//
 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -41,7 +41,7 @@ AndersenWave* AndersenWave::waveAndersen = NULL;
  */
 void AndersenWave::processNode(NodeID nodeId)
 {
-//    double propStart = stat->getClk();
+    // double propStart = stat->getClk();
 
     // If this is a PWC node, collapse all its points-to targets.
     // collapseNodePts() may change the points-to set of the nodes which have been processed
@@ -56,7 +56,7 @@ void AndersenWave::processNode(NodeID nodeId)
 
     ConstraintNode* node = consCG->getConstraintNode(nodeId);
 
-    handleCopyGep(node); //Calls AndersenWaveDiff::handleCopyGep first
+    handleCopyGep(node);    // Calls AndersenWaveDiff::handleCopyGep first
 
     // collapse nodes found during processing variant gep edges.
     while (consCG->hasNodesToBeCollapsed()) {
@@ -66,8 +66,8 @@ void AndersenWave::processNode(NodeID nodeId)
         if (collapseField(nodeId))
             reanalyze = true;
     }
-//    double propEnd = stat->getClk();
-//    timeOfProcessCopyGep += (propEnd - propStart) / TIMEINTERVAL;
+    // double propEnd = stat->getClk();
+    // timeOfProcessCopyGep += (propEnd - propStart) / TIMEINTERVAL;
 }
 
 /*!
@@ -75,7 +75,7 @@ void AndersenWave::processNode(NodeID nodeId)
  */
 void AndersenWave::postProcessNode(NodeID nodeId)
 {
-//    double insertStart = stat->getClk();
+    // double insertStart = stat->getClk();
 
     ConstraintNode* node = consCG->getConstraintNode(nodeId);
 
@@ -92,8 +92,8 @@ void AndersenWave::postProcessNode(NodeID nodeId)
             reanalyze = true;
     }
 
-//    double insertEnd = stat->getClk();
-//    timeOfProcessLoadStore += (insertEnd - insertStart) / TIMEINTERVAL;
+    // double insertEnd = stat->getClk();
+    // timeOfProcessLoadStore += (insertEnd - insertStart) / TIMEINTERVAL;
 }
 
 /*!

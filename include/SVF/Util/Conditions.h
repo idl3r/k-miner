@@ -2,8 +2,8 @@
 //
 //                     SVF: Static Value-Flow Analysis
 //
-// Copyright (C) <2013-2016>  <Yulei Sui>
-// Copyright (C) <2013-2016>  <Jingling Xue>
+// Copyright (C) <2013-2017>  <Yulei Sui>
+//
 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -48,7 +48,7 @@ public:
 
     /// Destructor
     ~BddCondManager() {
-        delete m_bdd_mgr;
+        Cudd_Quit(m_bdd_mgr);
     }
     /// Create new BDD condition
     inline DdNode* createNewCond(unsigned i) {

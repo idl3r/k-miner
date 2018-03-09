@@ -2,8 +2,8 @@
 //
 //                     SVF: Static Value-Flow Analysis
 //
-// Copyright (C) <2013-2016>  <Yulei Sui>
-// Copyright (C) <2013-2016>  <Jingling Xue>
+// Copyright (C) <2013-2017>  <Yulei Sui>
+//
 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -36,10 +36,11 @@
 /*!
  * Double free checker to check deallocations of memory
  */
+
 class DoubleFreeChecker : public LeakChecker {
 
 public:
-    typedef std::set<const LeakBug*> LeakBugSet;
+    typedef std::set<const LeakBug *> LeakBugSet;
 
     /// Pass ID
     static char ID;
@@ -50,23 +51,23 @@ public:
 
     /// Destructor
     virtual ~DoubleFreeChecker() {
-	for(auto iter = bugs.begin(); iter != bugs.end(); iter++) {
-		if(*iter != nullptr)
-			delete *iter;
-	}
+        for (auto iter = bugs.begin(); iter != bugs.end(); iter++) {
+            if (*iter != nullptr)
+                delete *iter;
+        }
     }
 
     /// We start from here
-    virtual bool runOnModule(llvm::Module& module) {
+    virtual bool runOnModule(SVFModule module) {
         /// start analysis
         analyze(module);
-	/// Write all bugs found to a report file;
-	writeToReport();
+        // / Write all bugs found to a report file;
+        writeToReport();
         return false;
     }
 
     /// Get pass name
-    virtual const char* getPassName() const {
+    virtual inline llvm::StringRef getPassName() const {
         return "Double Free Analysis";
     }
 
@@ -76,31 +77,35 @@ public:
         au.setPreservesAll();
     }
 
-    /// Add bug to the set of all found bugs.
-    //@{
-    inline void addBug(const ProgSlice* slice) {
-	const SVFGNode *src = slice->getSource();
-	std::string fileName = svfgAnalysisUtil::getSVFGSourceFileName(src);
-	std::string funcName = svfgAnalysisUtil::getSVFGFuncName(src); 
-	uint32_t sourceLine = svfgAnalysisUtil::getSVFGSourceLine(src);
+    // / Add bug to the set of all found bugs.
+    // @{
+    inline void
+    addBug(const ProgSlice * slice)
+    {
+        const SVFGNode * src = slice->getSource();
+        std::string fileName = svfgAnalysisUtil::getSVFGSourceFileName(src);
+        std::string funcName = svfgAnalysisUtil::getSVFGFuncName(src);
+        uint32_t sourceLine  = svfgAnalysisUtil::getSVFGSourceLine(src);
 
-	DoubleFreeBug *bug = new DoubleFreeBug();
-	bug->setLocation(fileName, funcName, sourceLine);
-	bug->setDoubleFreePath(slice->evalFinalCond());
+        DoubleFreeBug * bug = new DoubleFreeBug();
 
-	bugs.insert(bug);
+        bug->setLocation(fileName, funcName, sourceLine);
+        bug->setDoubleFreePath(slice->evalFinalCond());
+
+        bugs.insert(bug);
     }
-    //@}
-    
-    /// Write the found bugs to a report file.
-    void writeToReport();
+
+    // @}
+
+    // / Write the found bugs to a report file.
+    void
+    writeToReport();
 
     /// Report file/close bugs
     void reportBug(ProgSlice* slice);
 
 private:
     LeakBugSet bugs;
-
 };
 
 #endif /* DOUBLEFREECHECKER_H_ */

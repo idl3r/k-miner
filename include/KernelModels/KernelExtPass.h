@@ -44,8 +44,9 @@ public:
 		return transform();
 	}
 
-	virtual const char* getPassName() const {
-		return "Kernel Alloc Transform Pass";
+	// virtual const char* getPassName() const {
+	virtual llvm::StringRef getPassName() const {
+		return llvm::StringRef("Kernel Alloc Transform Pass");
 	}
 
 	virtual void getAnalysisUsage(llvm::AnalysisUsage& au) const {

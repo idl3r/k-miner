@@ -2,8 +2,8 @@
 //
 //                     SVF: Static Value-Flow Analysis
 //
-// Copyright (C) <2013-2016>  <Yulei Sui>
-// Copyright (C) <2013-2016>  <Jingling Xue>
+// Copyright (C) <2013-2017>  <Yulei Sui>
+//
 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -44,8 +44,8 @@ typedef NodeID VERSION;
 /// Memory Region class
 class MemRegion {
 
-public:
-    typedef DdNode* Condition;
+public
+:    typedef DdNode* Condition;
 private:
     /// region ID 0 is reserved
     static Size_t totalMRNum;
@@ -204,6 +204,12 @@ private:
     /// Map a callsite to all its object might pass into its callees
     CallSiteToNodeBSMap csToCallPtsMap;
 
+    /// Map a pointer to its cached points-to chain;
+    NodeToPTSSMap cachedPtsChainMap;
+
+    /// All global variable PAG node ids
+    NodeBS allGlobals;
+
     /// Clean up memory
     void destroy();
 
@@ -217,10 +223,10 @@ private:
     const MemRegion* getMR(const PointsTo& cpts) const;
 
     //Get all objects might pass into callee from a callsite
-    void collectCallSitePts(llvm::CallSite cs,NodeToPTSSMap& cachedPtsMap);
+    void collectCallSitePts(llvm::CallSite cs);
 
     //Recursive collect points-to chain
-    NodeBS& CollectPtsChain(NodeID id, NodeToPTSSMap& cachePtsMap);
+    NodeBS& CollectPtsChain(NodeID id);
 
     inline NodeBS& getCallSitePts(llvm::CallSite cs) {
         return csToCallPtsMap[cs];
@@ -249,6 +255,9 @@ protected:
 
     /// Generate a memory region and put in into functions which use it
     void createMR(const llvm::Function* fun, const PointsTo& cpts);
+
+    /// Collect all global variables for later escape analysis
+    void collectGlobals();
 
     /// Generate regions for loads/stores
     virtual void collectModRefForLoadStore();
@@ -312,12 +321,20 @@ protected:
         callsiteToModPointsToMap[cs] = cpts;
         funToPointsToMap[cs.getCaller()].insert(cpts);
     }
-    inline void addCPtsToFunc(PointsTo& cpts, llvm::CallSite cs) {
+
+    inline void
+    addCPtsToFunc(PointsTo& cpts, llvm::CallSite cs)
+    {
         funToPointsToMap[cs.getCaller()].insert(cpts);
     }
+
     inline bool hasCPtsList(const llvm::Function* fun) const {
         return funToPointsToMap.find(fun)!=funToPointsToMap.end();
     }
+
+    void
+    printPTS(const NodeBS &pts, std::string intro_str);
+
     inline PointsToList& getPointsToList(const llvm::Function* fun) {
         return funToPointsToMap[fun];
     }
@@ -413,8 +430,6 @@ public:
     inline PAGEdgeList& getPAGEdgesFromInst(const llvm::Instruction* inst) {
         return pta->getPAG()->getInstPAGEdgeList(inst);
     }
-
-	void printPTS(const NodeBS &pts, std::string intro_str);
 
 };
 

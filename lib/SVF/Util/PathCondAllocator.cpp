@@ -2,8 +2,8 @@
 //
 //                     SVF: Static Value-Flow Analysis
 //
-// Copyright (C) <2013-2016>  <Yulei Sui>
-// Copyright (C) <2013-2016>  <Jingling Xue>
+// Copyright (C) <2013-2017>  <Yulei Sui>
+//
 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -55,14 +55,14 @@ static cl::opt<bool> PrintPathCond("print-pc", cl::init(false),
 /*!
  * Allocate path condition for each branch
  */
-void PathCondAllocator::allocate(const Module& M) {
+void PathCondAllocator::allocate(const SVFModule M) {
     DBOUT(DGENERAL,outs() << pasMsg("path condition allocation starts\n"));
 
-    for (Module::const_iterator fit = M.begin(); fit != M.end(); ++fit) {
-        const Function & func = *fit;
-        if (!analysisUtil::isExtCall(&func)) {
+    for (SVFModule::const_iterator fit = M.begin(); fit != M.end(); ++fit) {
+        const Function * func = *fit;
+        if (!analysisUtil::isExtCall(func)) {
             // Allocate conditions for a program.
-            for (Function::const_iterator bit = func.begin(), ebit = func.end(); bit != ebit; ++bit) {
+            for (Function::const_iterator bit = func->begin(), ebit = func->end(); bit != ebit; ++bit) {
                 const BasicBlock & bb = *bit;
                 collectBBCallingProgExit(bb);
                 allocateForBB(bb);
@@ -318,10 +318,8 @@ bool PathCondAllocator::isTestContainsNullAndTheValue(const llvm::CmpInst* cmp, 
 
     const Value* op0 = cmp->getOperand(0);
     const Value* op1 = cmp->getOperand(1);
-//    if((op0 == val && isa<ConstantPointerNull>(op1))
-//            || (op1 == val && isa<ConstantPointerNull>(op0)) )
-    if((isVisitedCondValue(op0) && isa<ConstantPointerNull>(op1))
-            || (isVisitedCondValue(op1) && isa<ConstantPointerNull>(op0)) )
+    if ((isVisitedCondValue(op0) && isa<ConstantPointerNull>(op1)) ||
+      (isVisitedCondValue(op1) && isa<ConstantPointerNull>(op0)) )
         return true;
 
     return false;
@@ -412,16 +410,13 @@ PathCondAllocator::Condition* PathCondAllocator::ComputeIntraVFGGuard(const llvm
     assert(srcBB->getParent() == dstBB->getParent() && "two basic blocks are not in the same function??");
 
     PostDominatorTree* postDT = getPostDT(srcBB->getParent());
-    // If all paths containing srcBB also containing dstBB before.
     if(postDT->dominates(dstBB,srcBB))
         return getTrueCond();
 
     CFWorkList worklist;
     worklist.push(srcBB);
-    // Maps the condition (true) to the srcBB
     setCFCond(srcBB,getTrueCond());
 
-    // Iterate through the successors
     while(!worklist.empty()) {
         const BasicBlock* bb = worklist.pop();
         Condition* cond = getCFCond(bb);
@@ -430,6 +425,7 @@ PathCondAllocator::Condition* PathCondAllocator::ComputeIntraVFGGuard(const llvm
         /// we can early terminate the computation
         if(Condition* loopExitCond = evaluateLoopExitBranch(bb,dstBB))
             return condAnd(cond, loopExitCond);
+
 
         for (succ_const_iterator succ_it = succ_begin(bb);
                 succ_it != succ_end(bb); succ_it++) {

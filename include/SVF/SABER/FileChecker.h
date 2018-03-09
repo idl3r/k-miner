@@ -2,8 +2,8 @@
 //
 //                     SVF: Static Value-Flow Analysis
 //
-// Copyright (C) <2013-2016>  <Yulei Sui>
-// Copyright (C) <2013-2016>  <Jingling Xue>
+// Copyright (C) <2013-2017>  <Yulei Sui>
+//
 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -50,16 +50,20 @@ public:
     /// Destructor
     virtual ~FileChecker() {
     }
-
     /// We start from here
     virtual bool runOnModule(llvm::Module& module) {
+        return runOnModule(module);
+    }
+
+    /// We start from here
+    virtual bool runOnModule(SVFModule module) {
         /// start analysis
         analyze(module);
         return false;
     }
 
     /// Get pass name
-    virtual const char* getPassName() const {
+    virtual inline llvm::StringRef getPassName() const {
         return "File Open/Close Analysis";
     }
 

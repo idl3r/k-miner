@@ -2,8 +2,8 @@
 //
 //                     SVF: Static Value-Flow Analysis
 //
-// Copyright (C) <2013-2016>  <Yulei Sui>
-// Copyright (C) <2013-2016>  <Jingling Xue>
+// Copyright (C) <2013-2017>  <Yulei Sui>
+//
 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -55,15 +55,60 @@ double Andersen::timeOfProcessLoadStore = 0;
 double Andersen::timeOfUpdateCallGraph = 0;
 
 
-/*!
- * We start from here
- */
-bool Andersen::runOnModule(llvm::Module& module) {
+static cl::opt<string> WriteAnder("write-ander",  cl::init(""),
+                                  cl::desc("Write Andersen's analysis results to a file"));
+static cl::opt<string> ReadAnder("read-ander",  cl::init(""),
+                                 cl::desc("Read Andersen's analysis results from a file"));
 
-    /// start analysis
-    analyze(module);
-    return false;
+
+
+/*!
+ * Andersen analysis
+ */
+void Andersen::analyze(SVFModule svfModule) {
+    /// Initialization for the Solver
+    initialize(svfModule);
+
+
+    bool readResultsFromFile = false;
+    if(!ReadAnder.empty())
+        readResultsFromFile = this->readFromFile(ReadAnder);
+
+    if(!readResultsFromFile) {
+        DBOUT(DGENERAL, llvm::outs() << analysisUtil::pasMsg("Start Solving Constraints\n"));
+
+        processAllAddr();
+
+        do {
+            numOfIteration++;
+
+            if(0 == numOfIteration % OnTheFlyIterBudgetForStat) {
+                dumpStat();
+            }
+
+            reanalyze = false;
+
+            /// Start solving constraints
+            solve();
+
+            double cgUpdateStart = stat->getClk();
+            if (updateCallGraph(getIndirectCallsites()))
+                reanalyze = true;
+            double cgUpdateEnd = stat->getClk();
+            timeOfUpdateCallGraph += (cgUpdateEnd - cgUpdateStart) / TIMEINTERVAL;
+
+        } while (reanalyze);
+
+        DBOUT(DGENERAL, llvm::outs() << analysisUtil::pasMsg("Finish Solving Constraints\n"));
+
+        /// finalize the analysis
+        finalize();
+    }
+
+    if(!WriteAnder.empty())
+        this->writeToFile(WriteAnder);
 }
+
 
 /*!
  * Start constraint solving
@@ -71,10 +116,10 @@ bool Andersen::runOnModule(llvm::Module& module) {
 void Andersen::processNode(NodeID nodeId) {
 
     numOfIteration++;
-//    if (0 == numOfIteration % OnTheFlyIterBudgetForStat) {
-//        dumpStat();
-//    }
-//
+    // if (0 == numOfIteration % OnTheFlyIterBudgetForStat) {
+    //     dumpStat();
+    // }
+
     ConstraintNode* node = consCG->getConstraintNode(nodeId);
 
     for (ConstraintNode::const_iterator it = node->outgoingAddrsBegin(), eit =
@@ -148,7 +193,6 @@ bool Andersen::processLoad(NodeID node, const ConstraintEdge* load) {
     if (pag->isConstantObj(node) || isNonPointerObj(node))
         return false;
 
-//#pragma omp critical (numOfProcessedLoad)
     numOfProcessedLoad++;
 
     NodeID dst = load->getDstID();
@@ -168,7 +212,6 @@ bool Andersen::processStore(NodeID node, const ConstraintEdge* store) {
     if (pag->isConstantObj(node) || isNonPointerObj(node))
         return false;
 
-//#pragma omp critical (numOfProcessedStore)
     numOfProcessedStore++;
 
     NodeID src = store->getSrcID();
@@ -182,18 +225,18 @@ bool Andersen::processStore(NodeID node, const ConstraintEdge* store) {
  */
 bool Andersen::processCopy(NodeID node, const ConstraintEdge* edge) {
     bool changed = false;
-//#pragma omp critical (processCopy)
-        {
-    numOfProcessedCopy++;
 
-    assert((isa<CopyCGEdge>(edge)) && "not copy/call/ret ??");
-    NodeID dst = edge->getDstID();
+    {
+        numOfProcessedCopy++;
 
-    PointsTo& srcPts = getPts(node);
-    changed = unionPts(dst,srcPts);
-    if (changed)
-        pushIntoWorklist(dst);
-        }
+        assert((isa<CopyCGEdge>(edge)) && "not copy/call/ret ??");
+        NodeID dst = edge->getDstID();
+
+        PointsTo& srcPts = getPts(node);
+        changed = unionPts(dst, srcPts);
+        if (changed)
+            pushIntoWorklist(dst);
+    }
 
     return changed;
 }
@@ -215,7 +258,6 @@ void Andersen::processGep(NodeID node, const GepCGEdge* edge) {
  */
 void Andersen::processGepPts(PointsTo& pts, const GepCGEdge* edge)
 {
-//#pragma omp critical (numOfProcessedGep)
     numOfProcessedGep++;
 
     PointsTo tmpDstPts;
@@ -235,17 +277,21 @@ void Andersen::processGepPts(PointsTo& pts, const GepCGEdge* edge)
                     consCG->addNodeToBeCollapsed(consCG->getBaseObjNode(ptd));
                 }
                 // add the field-insensitive node into pts.
-                NodeID baseId;
-                baseId = consCG->getFIObjNode(ptd);
+                NodeID baseId = consCG->getFIObjNode(ptd);
                 tmpDstPts.set(baseId);
             }
             /// Otherwise process invariant (normal) gep
             // TODO: after the node is set to field insensitive, handling invaraint gep edge may lose precision
             // because offset here are ignored, and it always return the base obj
             else if (const NormalGepCGEdge* normalGepEdge = dyn_cast<NormalGepCGEdge>(edge)) {
-                NodeID fieldSrcPtdNode;
-                fieldSrcPtdNode = consCG->getGepObjNode(ptd, normalGepEdge->getLocationSet());
+                if (!matchType(edge->getSrcID(), ptd, normalGepEdge))
+                    continue;
+                NodeID fieldSrcPtdNode = consCG->getGepObjNode(ptd,	normalGepEdge->getLocationSet());
                 tmpDstPts.set(fieldSrcPtdNode);
+                addTypeForGepObjNode(fieldSrcPtdNode, normalGepEdge);
+                // Any points-to passed to an FIObj also pass to its first field
+                if (normalGepEdge->getLocationSet().getOffset() == 0)
+                    addCopyEdge(getBaseObjNode(fieldSrcPtdNode), fieldSrcPtdNode);
             }
             else {
                 assert(false && "new gep edge?");
@@ -341,16 +387,13 @@ bool Andersen::collapseField(NodeID nodeId)
     bool changed = false;
 
     double start = stat->getClk();
-        NodeID baseRepNodeId;
 
     // set base node field-insensitive.
-//#pragma omp critical (collapseField)
-//    {  
     consCG->setObjFieldInsensitive(nodeId);
 
     // replace all occurrences of each field with the field-insensitive node
     NodeID baseId = consCG->getFIObjNode(nodeId);
-    baseRepNodeId = consCG->sccRepNode(baseId);
+    NodeID baseRepNodeId = consCG->sccRepNode(baseId);
     NodeBS & allFields = consCG->getAllFieldsObjNode(baseId);
     for (NodeBS::iterator fieldIt = allFields.begin(), fieldEit = allFields.end(); fieldIt != fieldEit; fieldIt++) {
         NodeID fieldId = *fieldIt;
@@ -376,7 +419,6 @@ bool Andersen::collapseField(NodeID nodeId)
             updateNodeRepAndSubs(fieldRepNodeId);
         }
     }
-//    }
 
     if (consCG->isPWCNode(baseRepNodeId))
         if (collapseNodePts(baseRepNodeId))

@@ -2,8 +2,8 @@
 //
 //                     SVF: Static Value-Flow Analysis
 //
-// Copyright (C) <2013-2016>  <Yulei Sui>
-// Copyright (C) <2013-2016>  <Jingling Xue>
+// Copyright (C) <2013-2017>  <Yulei Sui>
+//
 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -33,9 +33,9 @@
 #include "MSSA/SVFGNode.h"
 #include "MSSA/SVFGEdge.h"
 #include "Util/AnalysisUtil.h"
-// TODO RM
+
 #include "Util/KernelAnalysisUtil.h"
-using namespace analysisUtil;
+using namespace analysisUtil; 
 
 class PointerAnalysis;
 class SVFGStat;
@@ -92,6 +92,7 @@ public:
     typedef MemSSA::CALLMU CALLMU;
     typedef PAG::PAGEdgeSet PAGEdgeSet;
     typedef std::set<StoreSVFGNode*> StoreNodeSet;
+    typedef std::map<const StorePE*,const StoreSVFGNode*> StorePEToSVFGNodeMap;
 
 protected:
     NodeID totalSVFGNode;
@@ -106,16 +107,17 @@ protected:
     FunctionToFormalINsMapTy funToFormalINMap;
     FunctionToFormalOUTsMapTy funToFormalOUTMap;
     StoreNodeSet globalStore;	///< set of global store SVFG nodes
+    StorePEToSVFGNodeMap storePEToSVFGNodeMap;	///< map store inst to store SVFGNode
     SVFGStat * stat;
     SVFGK kind;
     MemSSA* mssa;
-    PTACallGraph* ptaCallGraph;
+    PointerAnalysis* pta;
 
     /// Clean up memory
     void destroy();
 
     /// Constructor
-    SVFG(PTACallGraph* cg, SVFGK k = ORIGSVFGK);
+    SVFG(SVFGK k = ORIGSVFGK);
 
     /// Start building SVFG
     virtual void buildSVFG(MemSSA* m);
@@ -138,6 +140,7 @@ public:
 
     /// Clear MSSA
     inline void clearMSSA() {
+        delete mssa;
         mssa = NULL;
     }
 
@@ -164,7 +167,7 @@ public:
     //@}
 
     /// Get a SVFG edge according to src and dst
-    SVFGEdge* getSVFGEdge(const SVFGNode* src, const SVFGNode* dst, SVFGEdge::SVFGEdgeK kind) const;
+    SVFGEdge* getSVFGEdge(const SVFGNode * src, const SVFGNode * dst, SVFGEdge::SVFGEdgeK kind) const;
 
     /// Get all inter value flow edges of a indirect call site
     void getInterVFEdgesForIndirectCallSite(const llvm::CallSite cs, const llvm::Function* callee, SVFGEdgeSetTy& edges);
@@ -178,10 +181,10 @@ public:
     /// Get callsite given a callsiteID
     //@{
     inline CallSiteID getCallSiteID(llvm::CallSite cs, const llvm::Function* func) const {
-        return getPTACallGraph()->getCallSiteID(cs, func);
+        return pta->getPTACallGraph()->getCallSiteID(cs, func);
     }
     inline llvm::CallSite getCallSite(CallSiteID id) const {
-        return getPTACallGraph()->getCallSite(id);
+        return pta->getPTACallGraph()->getCallSite(id);
     }
     //@}
 
@@ -190,7 +193,16 @@ public:
         return getSVFGNode(getDef(pagNode));
     }
 
-    inline bool hasDef(const PAGNode* pagNode) const {
+    /// Given a store pagEdge, return its SVFGNode
+    inline const SVFGNode* getStoreSVFGNode(const StorePE* store) const {
+        StorePEToSVFGNodeMap::const_iterator it = storePEToSVFGNodeMap.find(store);
+        assert(it!=storePEToSVFGNodeMap.end() && "SVFGNode not found?");
+        return it->second;
+    }
+
+    inline bool
+    hasDef(const PAGNode * pagNode) const
+    {
         return (PAGNodeToDefMap.find(pagNode) != PAGNodeToDefMap.end());
     }
 
@@ -272,11 +284,6 @@ public:
     llvm::Instruction* isCallSiteRetSVFGNode(const SVFGNode* node) const;
 
 protected:
-    ///Return PTA callgraph
-    inline PTACallGraph* getPTACallGraph() const {
-        return ptaCallGraph;
-    }
-
     /// Remove a SVFG edge
     inline void removeSVFGEdge(SVFGEdge* edge) {
         edge->getDstNode()->removeIncomingEdge(edge);
@@ -393,42 +400,14 @@ protected:
         return true;
     }
 
-    void printDB(const PAGNode* pagNode, const SVFGNode* node, std::string introStr) {
-//	    llvm::outs() << introStr << ":\n";
-//	    const llvm::BasicBlock *BB = node->getBB();
-//	    std::string name = "";
-//	    const llvm::Function *F;
-//	    std::string loc = "";
-//	    if(BB)
-//		    F = BB->getParent();
-//	    if(F)
-//		    name = F->getName();
-//
-//	    if(name == "free_pfn_range")
-//		    llvm::outs() << "found free_pfn_range \n";
-//
-//		if(pagNode->hasValue()) {
-//			const llvm::Value* v = pagNode->getValue();
-//			if(introStr == "add Gep" && pagNode->getId() < 2000 && pagNode->getId() > 1900)
-//				v->dump();
-//			loc = analysisUtil::getSourceLoc(v);
-//		}
-//
-//	    llvm::outs() << "set Def for pagNode= " << pagNode->getId() 
-//		    << " and svfgNode " << node->getId() << " in Func= " << name << " (" << loc << ").\n";
+    void
+    printDB(const PAGNode * pagNode, const SVFGNode * node, std::string introStr)
+    {
     }
 
-    void printDB(const MRVer* mvar, const SVFGNode* node, std::string introStr) {
-//	    llvm::outs() << introStr << ":\n";
-//	    const llvm::BasicBlock *BB = node->getBB();
-//	    std::string name = "";
-//	    const llvm::Function *F;
-//	    if(BB)
-//		    F = BB->getParent();
-//	    if(F)
-//		    name = F->getName();
-//	    llvm::outs() << "set Def for MRVer " 
-//		    << " and svfgNode " << node->getId() << " in Func= " << name << ".\n";
+    void
+    printDB(const MRVer * mvar, const SVFGNode * node, std::string introStr)
+    {
     }
 
     /// Given a PAGNode, set/get its def SVFG node (definition of top level pointers)
@@ -446,20 +425,24 @@ protected:
     inline NodeID getDef(const PAGNode* pagNode) const {
         PAGNodeToDefMapTy::const_iterator it = PAGNodeToDefMap.find(pagNode);
 
-	if (it==PAGNodeToDefMap.end()) {
-		if (pagNode->hasValue()) {
-			const llvm::Value *val = pagNode->getValue();
-			if (const llvm::Function *fun = llvm::dyn_cast<llvm::Function>(val))
-				llvm::outs() << "Value: function " << fun->getName().str();
-			else {
-		    		llvm::outs() << "Value: " << *val;
-				llvm::outs() << "File= " << getSourceFileName(val) << " " << std::to_string(getSourceLine(val)) << "\n";
-			}
-		}
-	}
+        if (it == PAGNodeToDefMap.end()) {
+            if (pagNode->hasValue()) {
+                const llvm::Value * val = pagNode->getValue();
+                if (const llvm::Function * fun = llvm::dyn_cast<llvm::Function>(val)) {
+                    llvm::outs() << "Value: function " << fun->getName().str();
+                } else {
+                    llvm::outs() << "Value: " << * val;
+                    llvm::outs() << "File= " << getSourceFileName(val) << " " << std::to_string(getSourceLine(val))
+                                 << "\n";
+                }
+            }
+        }
 
         assert(it!=PAGNodeToDefMap.end() && "PAG node does not have a definition??");
         return it->second;
+    }
+    inline bool hasDef(const PAGNode* pagNode) const {
+        return (PAGNodeToDefMap.find(pagNode) != PAGNodeToDefMap.end());
     }
     //@}
 
@@ -494,21 +477,19 @@ protected:
     void connectFromGlobalToProgEntry();
 
     inline bool isPhiCopyEdge(const CopyPE* copy) const {
-        return mssa->getPAG()->isPhiNode(copy->getDstNode());
+        return pta->getPAG()->isPhiNode(copy->getDstNode());
     }
 
     inline bool isPhiCopyNode(const PAGNode* node) const {
-        return mssa->getPAG()->isPhiNode(node);
+        return pta->getPAG()->isPhiNode(node);
     }
 
     /// Add SVFG node
     virtual inline void addSVFGNode(SVFGNode* node) {
-//	    llvm::outs() << "add SVFGNode " << node->getId() << "\n";
         addGNode(node->getId(),node);
     }
     /// Add SVFG node for program statement
     inline void addStmtSVFGNode(StmtSVFGNode* node) {
-//	    llvm::outs() << "add stmtNode= " << node->getId() << ": " << node->getPAGSrcNodeID() << " -> " << node->getPAGDstNodeID() << "\n"; 
         addSVFGNode(node);
     }
     /// Add Dummy SVFG node for null pointer definition
@@ -516,7 +497,7 @@ protected:
     inline void addNullPtrSVFGNode(const PAGNode* pagNode) {
         NullPtrSVFGNode* sNode = new NullPtrSVFGNode(totalSVFGNode++,pagNode);
         addSVFGNode(sNode);
-    	printDB(pagNode, sNode, "add NUll");
+        printDB(pagNode, sNode, "add Null");
         setDef(pagNode,sNode);
     }
     /// Add Address SVFG node
@@ -525,9 +506,9 @@ protected:
         addStmtSVFGNode(sNode);
         PAGNodeToDefMapTy::iterator it = PAGNodeToDefMap.find(addr->getSrcNode());
 
-    	printDB(addr->getSrcNode(), sNode, "add Addr");
-        if(it == PAGNodeToDefMap.end()) 
-        	setDef(addr->getSrcNode(),sNode);
+        printDB(addr->getSrcNode(), sNode, "add Addr");
+        if (it == PAGNodeToDefMap.end())
+            setDef(addr->getSrcNode(), sNode);
 
         setDef(addr->getDstNode(),sNode);
     }
@@ -535,30 +516,32 @@ protected:
     inline void addCopySVFGNode(const CopyPE* copy) {
         CopySVFGNode* sNode = new CopySVFGNode(totalSVFGNode++,copy);
         addStmtSVFGNode(sNode);
-    	printDB(copy->getDstNode(), sNode, "add Copy");
+        printDB(copy->getDstNode(), sNode, "add Copy");
         setDef(copy->getDstNode(),sNode);
     }
     /// Add Gep SVFG node
     inline void addGepSVFGNode(const GepPE* gep) {
         GepSVFGNode* sNode = new GepSVFGNode(totalSVFGNode++,gep);
         addStmtSVFGNode(sNode);
-    	printDB(gep->getDstNode(), sNode, "add Gep");
+        printDB(gep->getDstNode(), sNode, "add Gep");
         setDef(gep->getDstNode(),sNode);
     }
     /// Add Load SVFG node
     void addLoadSVFGNode(LoadPE* load) {
         LoadSVFGNode* sNode = new LoadSVFGNode(totalSVFGNode++,load);
         addStmtSVFGNode(sNode);
-    	printDB(load->getDstNode(), sNode, "add Load");
+        printDB(load->getDstNode(), sNode, "add Load");
         setDef(load->getDstNode(),sNode);
     }
     /// Add Store SVFG node,
     /// To be noted store does not create a new pointer, we do not set def for any PAG node
     void addStoreSVFGNode(StorePE* store) {
         StoreSVFGNode* sNode = new StoreSVFGNode(totalSVFGNode++,store);
+        assert(storePEToSVFGNodeMap.find(store)==storePEToSVFGNodeMap.end() && "should not insert twice!");
+        storePEToSVFGNodeMap[store] = sNode;
         addStmtSVFGNode(sNode);
         for(CHISet::iterator pi = mssa->getCHISet(store).begin(), epi = mssa->getCHISet(store).end(); pi!=epi; ++pi) {
-    	    printDB((*pi)->getResVer(), sNode, "add Store");
+            printDB((*pi)->getResVer(), sNode, "add Store");
             setDef((*pi)->getResVer(),sNode);
         }
 
@@ -583,7 +566,7 @@ protected:
                 it!=eit; ++it)
             sNode->addCallPE(*it);
 
-    	printDB(fparm, sNode, "add FParam");
+        printDB(fparm, sNode, "add FParam");
         setDef(fparm,sNode);
         PAGNodeToFormalParmMap[fparm] = sNode;
     }
@@ -604,7 +587,7 @@ protected:
     inline void addActualRetSVFGNode(const PAGNode* ret,llvm::CallSite cs) {
         ActualRetSVFGNode* sNode = new ActualRetSVFGNode(totalSVFGNode++,ret,cs);
         addSVFGNode(sNode);
-    	printDB(ret, sNode, "add ARet");
+        printDB(ret, sNode, "add ARet");
         setDef(ret,sNode);
         PAGNodeToActualRetMap[ret] = sNode;
     }
@@ -615,14 +598,14 @@ protected:
         u32_t pos = 0;
         for(PAG::PNodeBBPairList::const_iterator it = oplist.begin(), eit=oplist.end(); it!=eit; ++it,++pos)
             sNode->setOpVerAndBB(pos,it->first,it->second);
-    	printDB(phiResNode, sNode, "add IntraPHI");
+        printDB(phiResNode, sNode, "add IntraPHI");
         setDef(phiResNode,sNode);
     }
     /// Add memory Function entry chi SVFG node
     inline void addFormalINSVFGNode(const MemSSA::ENTRYCHI* chi) {
         FormalINSVFGNode* sNode = new FormalINSVFGNode(totalSVFGNode++,chi);
         addSVFGNode(sNode);
-    	printDB(chi->getResVer(), sNode, "add FIN");
+        printDB(chi->getResVer(), sNode, "add FIN");
         setDef(chi->getResVer(),sNode);
         funToFormalINMap[chi->getFunction()].set(sNode->getId());
     }
@@ -642,7 +625,7 @@ protected:
     inline void addActualOUTSVFGNode(const MemSSA::CALLCHI* chi) {
         ActualOUTSVFGNode* sNode = new ActualOUTSVFGNode(totalSVFGNode++,chi,chi->getCallSite());
         addSVFGNode(sNode);
-    	printDB(chi->getResVer(), sNode, "add AOUT");
+        printDB(chi->getResVer(), sNode, "add AOUT");
         setDef(chi->getResVer(),sNode);
         callSiteToActualOUTMap[chi->getCallSite()].set(sNode->getId());
     }
@@ -652,7 +635,7 @@ protected:
         addSVFGNode(sNode);
         for(MemSSA::PHI::OPVers::const_iterator it = phi->opVerBegin(), eit=phi->opVerEnd(); it!=eit; ++it)
             sNode->setOpVer(it->first,it->second);
-    	printDB(phi->getResVer(), sNode, "add IntraMSSAPHI");
+        printDB(phi->getResVer(), sNode, "add IntraMSSAPHI");
         setDef(phi->getResVer(),sNode);
     }
 
@@ -703,6 +686,7 @@ struct GraphTraits<Inverse<SVFGNode *> > : public GraphTraits<Inverse<GenericNod
 };
 
 template<> struct GraphTraits<SVFG*> : public GraphTraits<GenericGraph<SVFGNode,SVFGEdge>* > {
+    typedef SVFGNode *NodeRef;
 };
 }
 

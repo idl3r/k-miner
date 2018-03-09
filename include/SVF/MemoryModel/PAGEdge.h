@@ -2,8 +2,8 @@
 //
 //                     SVF: Static Value-Flow Analysis
 //
-// Copyright (C) <2013-2016>  <Yulei Sui>
-// Copyright (C) <2013-2016>  <Jingling Xue>
+// Copyright (C) <2013-2017>  <Yulei Sui>
+//
 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -33,6 +33,7 @@
 
 #include "MemoryModel/MemModel.h"
 #include "MemoryModel/GenericGraph.h"
+#include "Util/AnalysisUtil.h"
 
 #include <llvm/IR/CallSite.h>	// for callsite
 #include <llvm/ADT/STLExtras.h>			// for mapped_iter
@@ -57,7 +58,8 @@ public:
     };
 
 private:
-    const llvm::Instruction* inst;	///< LLVM instruction
+    const llvm::Value* value;	///< LLVM value
+    const llvm::BasicBlock *basicBlock;   ///< LLVM BasicBlock
     EdgeID edgeId;					///< Edge ID
 public:
     static Size_t totalEdgeNum;		///< Total edge number
@@ -95,16 +97,38 @@ public:
     /// Get/set methods for llvm instruction
     //@{
     inline const llvm::Instruction* getInst() const {
-        return inst;
+        return llvm::dyn_cast<llvm::Instruction>(value);
     }
-    inline void setInst(const llvm::Instruction* i) {
-        inst = i;
+    inline void setValue(const llvm::Value *val) {
+        value = val;
+    }
+    inline const llvm::Value* getValue() const {
+        return value;
+    }
+    inline void setBB(const llvm::BasicBlock *bb) {
+        basicBlock = bb;
+    }
+    inline const llvm::BasicBlock* getBB() const {
+        return basicBlock;
     }
     //@}
+
+    /// Compute the unique edgeFlag value from edge kind and call site Instruction.
+    static inline GEdgeFlag makeEdgeFlagWithCallInst(GEdgeKind k, const llvm::Instruction* cs) {
+        Inst2LabelMap::const_iterator iter = inst2LabelMap.find(cs);
+        u64_t label = (iter != inst2LabelMap.end()) ?
+                      iter->second : callEdgeLabelCounter++;
+        return (label << EdgeKindMaskBits) | k;
+    }
 
     typedef GenericNode<PAGNode,PAGEdge>::GEdgeSetTy PAGEdgeSetTy;
     typedef llvm::DenseMap<EdgeID, PAGEdgeSetTy> PAGEdgeToSetMapTy;
     typedef PAGEdgeToSetMapTy PAGKindToEdgeSetMapTy;
+
+private:
+    typedef llvm::DenseMap<const llvm::Instruction*, u32_t> Inst2LabelMap;
+    static Inst2LabelMap inst2LabelMap; ///< Call site Instruction to label map
+    static u64_t callEdgeLabelCounter;  ///< Call site Instruction counter
 };
 
 
@@ -289,7 +313,7 @@ public:
     {}
 
     /// offset of the gep edge
-    inline Size_t getOffset() const {
+    inline u32_t getOffset() const {
         return ls.getOffset();
     }
     inline const LocationSet& getLocationSet() const {
@@ -462,20 +486,20 @@ class TDJoinPE: public PAGEdge {
 private:
     TDJoinPE();                      ///< place holder
     TDJoinPE(const TDJoinPE &);  ///< place holder
-    void operator=(const RetPE &); ///< place holder
+    void operator=(const TDJoinPE &); ///< place holder
 
     const llvm::Instruction* inst;		/// the callsite instruction return to
 public:
     /// Methods for support type inquiry through isa, cast, and dyn_cast:
     //@{
-    static inline bool classof(const RetPE *) {
+    static inline bool classof(const TDJoinPE *) {
         return true;
     }
     static inline bool classof(const PAGEdge *edge) {
-        return edge->getEdgeKind() == PAGEdge::Ret;
+        return edge->getEdgeKind() == PAGEdge::ThreadJoin;
     }
     static inline bool classof(const GenericPAGEdgeTy *edge) {
-        return edge->getEdgeKind() == PAGEdge::Ret;
+        return edge->getEdgeKind() == PAGEdge::ThreadJoin;
     }
     //@}
 

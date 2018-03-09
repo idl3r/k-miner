@@ -2,8 +2,8 @@
 //
 //                     SVF: Static Value-Flow Analysis
 //
-// Copyright (C) <2013-2016>  <Yulei Sui>
-// Copyright (C) <2013-2016>  <Jingling Xue>
+// Copyright (C) <2013-2017>  <Yulei Sui>
+//
 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -58,7 +58,7 @@ class SVFGOPT : public SVFG {
 
 public:
     /// Constructor
-    SVFGOPT(PTACallGraph* cg) : SVFG(cg, OPTSVFGK) {
+    SVFGOPT() : SVFG(OPTSVFGK) {
         keepAllSelfCycle = keepContextSelfCycle = keepActualOutFormalIn = false;
     }
     /// Destructor

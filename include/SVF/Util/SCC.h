@@ -2,8 +2,8 @@
 //
 //                     SVF: Static Value-Flow Analysis
 //
-// Copyright (C) <2013-2016>  <Yulei Sui>
-// Copyright (C) <2013-2016>  <Jingling Xue>
+// Copyright (C) <2013-2017>  <Yulei Sui>
+//
 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -55,7 +55,7 @@ class SCCDetection {
 private:
     ///Define the GTraits and node iterator for printing
     typedef llvm::GraphTraits<GraphType> GTraits;
-    typedef typename GTraits::NodeType          GNODE;
+    typedef typename GTraits::NodeRef          GNODE;
     typedef typename GTraits::nodes_iterator node_iterator;
     typedef typename GTraits::ChildIteratorType child_iterator;
     typedef unsigned NodeID ;
@@ -90,6 +90,9 @@ public:
         inline void addSubNodes(NodeID n)    {
             _subNodes.set(n);
         }
+        inline NodeBS& subNodes() {
+            return _subNodes;
+        }
         inline const NodeBS& subNodes() const   {
             return _subNodes;
         }
@@ -117,7 +120,9 @@ public:
     }
 
     // Necessary in order to parallelize the pointer anaylsis
-    inline GNodeVector &topoNodeVector() {
+    inline GNodeVector &
+    topoNodeVector()
+    {
         return _TV;
     }
 
@@ -161,6 +166,11 @@ public:
         return it->second.subNodes();
     }
 
+    /// get all repNodeID
+    inline const NodeBS &getRepNodes() const {
+        return repNodes;
+    }
+
     const inline GraphType & graph() {
         return _graph;
     }
@@ -174,6 +184,7 @@ private:
     GNodeStack             _SS;
     GNodeStack             _T;
     GNodeVector _TV;
+    NodeBS repNodes;
 
     inline bool visited(NodeID n)  {
         return _NodeSCCAuxInfo[n].visited();
@@ -191,6 +202,11 @@ private:
     inline void rep(NodeID n, NodeID r)  {
         _NodeSCCAuxInfo[n].rep(r);
         _NodeSCCAuxInfo[r].addSubNodes(n);
+        if (n != r) {
+            _NodeSCCAuxInfo[n].subNodes().clear();
+            repNodes.reset(n);
+            repNodes.set(r);
+        }
     }
 
     inline NodeID rep(NodeID n) {
@@ -200,11 +216,11 @@ private:
         return _NodeSCCAuxInfo[n].inSCC();
     }
 
-    inline GNODE* Node(NodeID id) const {
+    inline GNODE Node(NodeID id) const {
         return GTraits::getNode(_graph, id);
     }
 
-    inline NodeID Node_Index(GNODE* node) const {
+    inline NodeID Node_Index(GNODE node) const {
         return GTraits::getNodeID(node);
     }
 
@@ -254,11 +270,12 @@ private:
         _NodeSCCAuxInfo.clear();
         _I = 0;
         _D.clear();
+        repNodes.clear();
         while(!_SS.empty())
             _SS.pop();
         while(!_T.empty())
             _T.pop();
-        while(!_TV.empty())
+        while (!_TV.empty())
             _TV.pop_back();
     }
 public:

@@ -2,8 +2,8 @@
 //
 //                     SVF: Static Value-Flow Analysis
 //
-// Copyright (C) <2013-2016>  <Yulei Sui>
-// Copyright (C) <2013-2016>  <Jingling Xue>
+// Copyright (C) <2013-2017>  <Yulei Sui>
+//
 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -32,6 +32,7 @@
 #include "MSSA/SVFGStat.h"
 #include "Util/GraphUtil.h"
 #include "Util/AnalysisUtil.h"
+#include "Util/SVFModule.h"
 
 using namespace llvm;
 using namespace analysisUtil;
@@ -43,7 +44,7 @@ static cl::opt<bool> DumpVFG("dump-svfg", cl::init(false),
 /*!
  * Constructor
  */
-SVFG::SVFG(PTACallGraph* cg, SVFGK k): totalSVFGNode(0), kind(k),mssa(NULL), ptaCallGraph(cg)  {
+SVFG::SVFG(SVFGK k): totalSVFGNode(0), kind(k),mssa(NULL),pta(NULL) {
     stat = new SVFGStat(this);
 }
 
@@ -54,6 +55,7 @@ void SVFG::destroy() {
     delete stat;
     stat = NULL;
     mssa = NULL;
+    pta = NULL;
 }
 
 /*!
@@ -67,37 +69,34 @@ void SVFG::destroy() {
  */
 void SVFG::buildSVFG(MemSSA* m) {
     mssa = m;
-
-//    outs() << "Build SVFG\n";
+    pta = m->getPTA();
+    stat->startClk();
     DBOUT(DGENERAL, outs() << pasMsg("\tCreate SVFG Top Level Node\n"));
-//    outs() << "\tCreate SVFG Top level Edge\n";
 
     stat->TLVFNodeStart();
     addSVFGNodesForTopLevelPtrs();
     stat->TLVFNodeEnd();
 
     DBOUT(DGENERAL, outs() << pasMsg("\tCreate SVFG Addr-taken Node\n"));
-//    outs() << "\tCreate SVFG Addr-taken Edge\n";
 
     stat->ATVFNodeStart();
     addSVFGNodesForAddrTakenVars();
     stat->ATVFNodeEnd();
 
     DBOUT(DGENERAL, outs() << pasMsg("\tCreate SVFG Direct Edge\n"));
-//    outs() << "\tCreate SVFG Direct Edge\n";
 
     stat->dirVFEdgeStart();
     connectDirectSVFGEdges();
     stat->dirVFEdgeEnd();
 
     DBOUT(DGENERAL, outs() << pasMsg("\tCreate SVFG Indirect Edge\n"));
-//    outs() << "\tCreate SVFG Indirect Edge\n";
 
     stat->indVFEdgeStart();
     connectIndirectSVFGEdges();
     stat->indVFEdgeEnd();
 
 }
+
 
 /*!
  * Create SVFG nodes for top level pointers
@@ -156,22 +155,21 @@ void SVFG::addSVFGNodesForTopLevelPtrs() {
     // initialize actual parameter nodes
     for(PAG::CSToArgsListMap::iterator it = pag->getCallSiteArgsMap().begin(), eit = pag->getCallSiteArgsMap().end(); it !=eit; ++it) {
         const Function* fun = getCallee(it->first);
+        fun = getDefFunForMultipleModule(fun);
 
-	//TODO remove
-	if(fun == nullptr)
-		continue;
+        // TODO remove
+        if (fun == nullptr)
+            continue;
 
         /// for external function we do not create acutalParm SVFGNode
         /// because we do not have a formal parameter to connect this actualParm
-        if(isExtCall(fun)) 
+        if(isExtCall(fun))
             continue;
 
         for(PAG::PAGNodeList::iterator pit = it->second.begin(), epit = it->second.end(); pit!=epit; ++pit) {
             const PAGNode* pagNode = *pit;
-
-            if (pagNode->isPointer()) {
+            if (pagNode->isPointer())
                 addActualParmSVFGNode(pagNode,it->first);
-	    }
         }
     }
 
@@ -291,10 +289,9 @@ void SVFG::connectDirectSVFGEdges() {
         NodeID nodeId = it->first;
         const SVFGNode* node = it->second;
 
-	const llvm::BasicBlock *BB = node->getBB();
+        const llvm::BasicBlock * BB = node->getBB();
 
         if(const StmtSVFGNode* stmtNode = dyn_cast<StmtSVFGNode>(node)) {
-//		outs() << "stmtNode\n";
             /// do not handle AddrSVFG node, as it is already the source of a definition
             if(isa<AddrSVFGNode>(stmtNode))
                 continue;
@@ -308,22 +305,15 @@ void SVFG::connectDirectSVFGEdges() {
 
         }
         else if(const PHISVFGNode* phiNode = dyn_cast<PHISVFGNode>(node)) {
-//		outs() << "phisNode\n";
             for (PHISVFGNode::OPVers::const_iterator it = phiNode->opVerBegin(), eit = phiNode->opVerEnd();
                     it != eit; it++) {
                 addIntraDirectVFEdge(getDef(it->second),nodeId);
             }
         }
         else if(const ActualParmSVFGNode* actualParm = dyn_cast<ActualParmSVFGNode>(node)) {
-//		outs() << "actualparmNode\n";
-//		outs() << "actualParm svfgNode " << node->getId() << " with pagParam " << actualParm->getParam()->getId() << "\n";
-//		if(actualParm->getCallSite().getCalledFunction() != nullptr)
-//			if(actualParm->getCallSite().getCalledFunction()->hasName())
-//				outs() << "callee= " << actualParm->getCallSite().getCalledFunction()->getName() << "\n";
             addIntraDirectVFEdge(getDef(actualParm->getParam()),nodeId);
         }
         else if(const FormalParmSVFGNode* formalParm = dyn_cast<FormalParmSVFGNode>(node)) {
-//		outs() << "formalparmNode\n";
             for(CallPESet::const_iterator it = formalParm->callPEBegin(), eit = formalParm->callPEEnd();
                     it!=eit; ++it) {
                 const Instruction* callInst = (*it)->getCallInst();
@@ -333,7 +323,6 @@ void SVFG::connectDirectSVFGEdges() {
             }
         }
         else if(const FormalRetSVFGNode* calleeRet = dyn_cast<FormalRetSVFGNode>(node)) {
-//		outs() << "formalretNode\n";
             /// connect formal ret to its definition node
             addIntraDirectVFEdge(getDef(calleeRet->getRet()), nodeId);
 
@@ -363,7 +352,6 @@ void SVFG::connectDirectSVFGEdges() {
     PAGEdge::PAGEdgeSetTy& joins = getPAG()->getEdgeSet(PAGEdge::ThreadJoin);
     for (PAGEdge::PAGEdgeSetTy::iterator iter = joins.begin(), eiter =
                 joins.end(); iter != eiter; ++iter) {
-//		outs() << "joins\n";
         TDJoinPE* joinedge = cast<TDJoinPE>(*iter);
         NodeID callsiteRev = getDef(joinedge->getDstNode());
         const FormalRetSVFGNode* calleeRet = getFormalRetSVFGNode(joinedge->getSrcNode());
@@ -399,7 +387,7 @@ void SVFG::connectIndirectSVFGEdges() {
         }
         else if(const FormalINSVFGNode* formalIn = dyn_cast<FormalINSVFGNode>(node)) {
             PTACallGraphEdge::CallInstSet callInstSet;
-            getPTACallGraph()->getDirCallSitesInvokingCallee(formalIn->getEntryChi()->getFunction(),callInstSet);
+            mssa->getPTA()->getPTACallGraph()->getDirCallSitesInvokingCallee(formalIn->getEntryChi()->getFunction(),callInstSet);
             for(PTACallGraphEdge::CallInstSet::iterator it = callInstSet.begin(), eit = callInstSet.end(); it!=eit; ++it) {
                 CallSite cs = analysisUtil::getLLVMCallSite(*it);
                 if(!mssa->hasMU(cs))
@@ -414,7 +402,7 @@ void SVFG::connectIndirectSVFGEdges() {
         else if(const FormalOUTSVFGNode* formalOut = dyn_cast<FormalOUTSVFGNode>(node)) {
             PTACallGraphEdge::CallInstSet callInstSet;
             const MemSSA::RETMU* retMu = formalOut->getRetMU();
-            getPTACallGraph()->getDirCallSitesInvokingCallee(retMu->getFunction(),callInstSet);
+            mssa->getPTA()->getPTACallGraph()->getDirCallSitesInvokingCallee(retMu->getFunction(),callInstSet);
             for(PTACallGraphEdge::CallInstSet::iterator it = callInstSet.begin(), eit = callInstSet.end(); it!=eit; ++it) {
                 CallSite cs = analysisUtil::getLLVMCallSite(*it);
                 if(!mssa->hasCHI(cs))
@@ -456,8 +444,9 @@ void SVFG::connectIndirectSVFGEdges() {
  */
 void SVFG::connectFromGlobalToProgEntry()
 {
-    llvm::Module* mod = getPTACallGraph()->getModule();
-    const llvm::Function* mainFunc = analysisUtil::getProgEntryFunction(mod);
+    SVFModule svfModule = mssa->getPTA()->getModule();
+    const llvm::Function* mainFunc =
+        analysisUtil::getProgEntryFunction(svfModule);
     FormalINSVFGNodeSet& formalIns = getFormalINSVFGNodes(mainFunc);
     if (formalIns.empty())
         return;
@@ -545,10 +534,7 @@ SVFGEdge* SVFG::getSVFGEdge(const SVFGNode* src, const SVFGNode* dst, SVFGEdge::
             edge = (*iter);
         }
     }
-    //TODO remove
-//    if(counter > 1)
-//            outs() << counter << " edges\n";
-//    assert(counter <= 1 && "there's more than one edge between two SVFG nodes");
+    // assert(counter <= 1 && "there's more than one edge between two SVFG nodes");
     return edge;
 
 }

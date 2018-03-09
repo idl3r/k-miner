@@ -2,8 +2,8 @@
 //
 //                     SVF: Static Value-Flow Analysis
 //
-// Copyright (C) <2013-2016>  <Yulei Sui>
-// Copyright (C) <2013-2016>  <Jingling Xue>
+// Copyright (C) <2013-2017>  <Yulei Sui>
+//
 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -65,9 +65,17 @@ public:
         return bb;
     }
 
+    /// Overloading operator << for dumping SVFG node ID
+    //@{
+    friend llvm::raw_ostream& operator<< (llvm::raw_ostream &o, const SVFGNode &node) {
+        o << "SVFGNode ID:" << node.getId();
+        return o;
+    }
+    //@}
 protected:
     const llvm::BasicBlock* bb;
 };
+
 
 /*!
  * SVFG node stands for a program statement
@@ -80,8 +88,7 @@ private:
 public:
     /// Constructor
     StmtSVFGNode(NodeID id, const PAGEdge* e, SVFGNodeK k): SVFGNode(id,k), pagEdge(e) {
-        if(e->getInst())
-            bb = e->getInst()->getParent();
+        bb = e->getBB();
     }
 
     /// PAGNode and PAGEdge
@@ -531,9 +538,12 @@ public:
             bb = inst->getParent();
         }
         else {
-            assert(llvm::isa<llvm::Argument>(val)&& "Phi svf node is not an instruction or an formal parameter??");
-            const llvm::Argument* arg = llvm::cast<llvm::Argument>(val);
-            bb = &arg->getParent()->getEntryBlock();
+            assert((llvm::isa<llvm::Argument>(val) || analysisUtil::isSelectConstantExpr(val))
+                   && "Phi svf node is not an instruction, a select constantExpr or an formal parameter??");
+            if(const llvm::Argument* arg = llvm::dyn_cast<llvm::Argument>(val))
+                bb = &arg->getParent()->getEntryBlock();
+            else
+                bb = NULL;	/// bb is null when we have a select constant expression
         }
     }
 
@@ -649,10 +659,12 @@ public:
         return cs;
     }
 
-    inline llvm::Instruction* getCallInst() const {
-	return callInst;
+    inline llvm::Instruction *
+    getCallInst() const
+    {
+        return callInst;
     }
-
+    
     /// Methods for support type inquiry through isa, cast, and dyn_cast:
     //@{
     static inline bool classof(const InterPHISVFGNode *node) {

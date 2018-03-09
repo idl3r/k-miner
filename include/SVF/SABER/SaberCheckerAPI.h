@@ -2,8 +2,8 @@
 //
 //                     SVF: Static Value-Flow Analysis
 //
-// Copyright (C) <2013-2016>  <Yulei Sui>
-// Copyright (C) <2013-2016>  <Jingling Xue>
+// Copyright (C) <2013-2017>  <Yulei Sui>
+//
 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -43,13 +43,13 @@ public:
     enum CHECKER_TYPE {
         CK_DUMMY = 0,		/// dummy type
         CK_ALLOC,		/// memory allocation
-        CK_FREE,      		/// memory deallocation
-        CK_KALLOC,		/// kernel memory allocation
-        CK_KFREE,      		/// kernel memory deallocation
+        CK_FREE,      /// memory deallocation
+        CK_KALLOC,    // / kernel memory allocation
+        CK_KFREE,     // / kernel memory deallocation
         CK_FOPEN,		/// File open
-        CK_FCLOSE,		/// File close
-        CK_KLOCK,		/// File close
-        CK_KUNLOCK,		/// File close
+        CK_FCLOSE,    // / File close
+        CK_KLOCK,     // / File close
+        CK_KUNLOCK,   // / File close
     };
 
     typedef llvm::StringMap<CHECKER_TYPE> TDAPIMap;
@@ -72,7 +72,7 @@ private:
     /// Get the function type of a function
     inline CHECKER_TYPE getType(const llvm::Function* F) const {
         if(F) {
-            TDAPIMap::const_iterator it= tdAPIMap.find(F->getName().split('.').first.str());
+            TDAPIMap::const_iterator it = tdAPIMap.find(F->getName().split('.').first.str());
             if(it != tdAPIMap.end())
                 return it->second;
         }
@@ -95,7 +95,7 @@ public:
     }
     inline bool isMemAlloc(const llvm::Instruction *inst) const {
         return getType(analysisUtil::getCallee(inst)) == CK_ALLOC ||
-		getType(analysisUtil::getCallee(inst)) == CK_KALLOC;
+               getType(analysisUtil::getCallee(inst)) == CK_KALLOC;
     }
     inline bool isMemAlloc(llvm::CallSite cs) const {
         return isMemAlloc(cs.getInstruction());
@@ -109,7 +109,7 @@ public:
     }
     inline bool isMemDealloc(const llvm::Instruction *inst) const {
         return getType(analysisUtil::getCallee(inst)) == CK_FREE ||
-		getType(analysisUtil::getCallee(inst)) == CK_KFREE;
+               getType(analysisUtil::getCallee(inst)) == CK_KFREE;
     }
     inline bool isMemDealloc(llvm::CallSite cs) const {
         return isMemDealloc(cs.getInstruction());
@@ -141,32 +141,50 @@ public:
         return isFClose(cs.getInstruction());
     }
     //@}
-    
-    /// Return true if this call is a lock function 
-    //@{
-    inline bool isKLock(const llvm::Function* fun) const {
+
+    // / Return true if this call is a lock function
+    // @{
+    inline bool
+    isKLock(const llvm::Function * fun) const
+    {
         return getType(fun) == CK_KLOCK;
     }
-    inline bool isKLock(const llvm::Instruction *inst) const {
+
+    inline bool
+    isKLock(const llvm::Instruction * inst) const
+    {
         return getType(analysisUtil::getCallee(inst)) == CK_KLOCK;
     }
-    inline bool isKLock(llvm::CallSite cs) const {
+
+    inline bool
+    isKLock(llvm::CallSite cs) const
+    {
         return isKLock(cs.getInstruction());
     }
-    //@}
 
-    /// Return true if this call is a unlock function 
-    //@{
-    inline bool isKUnlock(const llvm::Function* fun) const {
+    // @}
+
+    // / Return true if this call is a unlock function
+    // @{
+    inline bool
+    isKUnlock(const llvm::Function * fun) const
+    {
         return getType(fun) == CK_KUNLOCK;
     }
-    inline bool isKUnlock(const llvm::Instruction *inst) const {
+
+    inline bool
+    isKUnlock(const llvm::Instruction * inst) const
+    {
         return getType(analysisUtil::getCallee(inst)) == CK_KUNLOCK;
     }
-    inline bool isKUnlock(llvm::CallSite cs) const {
+
+    inline bool
+    isKUnlock(llvm::CallSite cs) const
+    {
         return isKUnlock(cs.getInstruction());
     }
-    //@}
+
+    // @}
 };
 
 

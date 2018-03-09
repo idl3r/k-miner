@@ -2,8 +2,8 @@
 //
 //                     SVF: Static Value-Flow Analysis
 //
-// Copyright (C) <2013-2016>  <Yulei Sui>
-// Copyright (C) <2013-2016>  <Jingling Xue>
+// Copyright (C) <2013-2017>  <Yulei Sui>
+//
 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -39,14 +39,18 @@
 
 #include "MemoryModel/PointerAnalysis.h"
 #include <llvm/Analysis/AliasAnalysis.h>
+#include <llvm/Analysis/TargetLibraryInfo.h>
 #include <llvm/Pass.h>
 
+class SVFModule;
 
 /*!
  * Whole program pointer analysis.
  * This class performs various pointer analysis on the given module.
  */
-class WPAPass: public llvm::ModulePass, public llvm::AliasAnalysis {
+// excised ", public llvm::AliasAnalysis" as that has a very light interface
+// and I want to see what breaks.
+class WPAPass: public llvm::ModulePass {
     typedef std::vector<PointerAnalysis*> PTAVector;
 
 public:
@@ -59,8 +63,11 @@ public:
         Precise			///< return alias result by the most precise pta
     };
 
-    /// Constructor
-    WPAPass() : llvm::ModulePass(ID), llvm::AliasAnalysis() {}
+    /// Constructor needs TargetLibraryInfo to be passed to the AliasAnalysis
+    WPAPass() : llvm::ModulePass(ID) {
+
+    }
+
     /// Destructor
     ~WPAPass();
 
@@ -85,16 +92,21 @@ public:
     virtual llvm::AliasResult alias(const llvm::Value* V1,	const llvm::Value* V2);
 
     /// We start from here
-    virtual bool runOnModule(llvm::Module& module);
+    virtual bool runOnModule(llvm::Module& module) {
+        return false;
+    }
+
+    /// Run pointer analysis on SVFModule
+    void runOnModule(SVFModule svfModule);
 
     /// PTA name
-    virtual inline const char* getPassName() const {
+    virtual inline llvm::StringRef getPassName() const {
         return "WPAPass";
     }
 
 private:
     /// Create pointer analysis according to specified kind and analyze the module.
-    void runPointerAnalysis(llvm::Module& module, u32_t kind);
+    void runPointerAnalysis(SVFModule svfModule, u32_t kind);
 
     PTAVector ptaVector;	///< all pointer analysis to be executed.
     PointerAnalysis* _pta;	///<  pointer analysis to be executed.

@@ -93,7 +93,7 @@ public:
         removeMDTag(inst, inst, str);
     }
     //@}
-    
+
     /// manipulate llvm meta data on instructions for a specific value
     //@{
     /// add flag to llvm metadata
@@ -112,11 +112,15 @@ public:
         }
     }
 
-    inline void my_addMDTag(llvm::Instruction *inst, std::string str) {
+    inline void
+    my_addMDTag(llvm::Instruction * inst, std::string str)
+    {
         my_addMDTag(inst, inst, str);
     }
 
-    inline void my_addMDTag(llvm::Instruction *inst, llvm::Value *val, std::string str) {
+    inline void
+    my_addMDTag(llvm::Instruction * inst, llvm::Value * val, std::string str)
+    {
         std::vector<llvm::Value *> values;
         // add the flag if we did not see it before
         if (evalMDTag(inst, val, str, values) == false) {
@@ -124,6 +128,7 @@ public:
             inst->setMetadata(str, llvm::MDNode::get(inst->getContext(), llvm::None));
         }
     }
+
 
     /// remove flag from llvm metadata
     inline void removeMDTag(llvm::Instruction *inst, llvm::Value *val, std::string str) {

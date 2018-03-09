@@ -2,8 +2,8 @@
 //
 //                     SVF: Static Value-Flow Analysis
 //
-// Copyright (C) <2013-2016>  <Yulei Sui>
-// Copyright (C) <2013-2016>  <Jingling Xue>
+// Copyright (C) <2013-2017>  <Yulei Sui>
+//
 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -165,14 +165,15 @@ void SaberSVFGBuilder::AddExtActualParmSVFGNodes() {
             eit = pag->getCallSiteArgsMap().end(); it!=eit; ++it) {
         const Function* fun = getCallee(it->first);
         if(SaberCheckerAPI::getCheckerAPI()->isMemDealloc(fun)
-                || SaberCheckerAPI::getCheckerAPI()->isFClose(fun)
-                || SaberCheckerAPI::getCheckerAPI()->isKLock(fun)
-                || SaberCheckerAPI::getCheckerAPI()->isKUnlock(fun)) {
+           SaberCheckerAPI::getCheckerAPI()->isFClose(fun) ||
+           SaberCheckerAPI::getCheckerAPI()->isKLock(fun) ||
+           SaberCheckerAPI::getCheckerAPI()->isKUnlock(fun))
+        {
             PAG::PAGNodeList& arglist =	it->second;
             const PAGNode* pagNode = arglist.front();
-	    if(fun && fun->hasName())
-		    outs() << "Fun " << fun->getName() <<"\n";
-	    svfg->addActualParmSVFGNode(pagNode,it->first);
+            if (fun && fun->hasName())
+                outs() << "Fun " << fun->getName() << "\n";
+            svfg->addActualParmSVFGNode(pagNode,it->first);
             svfg->addIntraDirectVFEdge(svfg->getDefSVFGNode(pagNode)->getId(),svfg->getActualParmSVFGNode(pagNode,it->first)->getId());
         }
     }

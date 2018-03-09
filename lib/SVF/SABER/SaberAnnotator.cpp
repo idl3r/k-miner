@@ -2,8 +2,8 @@
 //
 //                     SVF: Static Value-Flow Analysis
 //
-// Copyright (C) <2013-2016>  <Yulei Sui>
-// Copyright (C) <2013-2016>  <Jingling Xue>
+// Copyright (C) <2013-2017>  <Yulei Sui>
+//
 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -34,62 +34,21 @@
 using namespace llvm;
 
 /*!
- * Adds some information to the metadata of a source instruction.
- */
-//void SaberAnnotator::annotateSource() {
-//	std::string str;
-//	raw_string_ostream rawstr(str);
-//	rawstr << SB_SLICESOURCE ; //<< _curSlice->getSource()->getId();
-//
-//	if(const StmtSVFGNode* stmt = dyn_cast<StmtSVFGNode>(_curSlice->getSource())) {
-//		if(const Instruction* sourceinst = stmt->getInst()) {
-//			my_addMDTag(const_cast<Instruction*>(sourceinst),rawstr.str());
-//		}
-//		else {
-//			assert(false && "instruction of source node not found");
-//		}
-//	}
-//	else
-//		assert(false && "instruction of source node not found");
-//
-//}
-//
-//void SaberAnnotator::annotateSinks() {
-//	for(ProgSlice::SVFGNodeSet::iterator it = _curSlice->getSinks().begin(),
-//			eit = _curSlice->getSinks().end(); it!=eit; ++it) {
-//
-//		if(const StmtSVFGNode* stmt = dyn_cast<StmtSVFGNode>(*it)) {
-//			if(const Instruction* sinkinst = stmt->getInst()) {
-//				std::string str;
-//				raw_string_ostream rawstr(str);
-//				rawstr << SB_SLICESINK << (*it)->getId();
-//				my_addMDTag(const_cast<Instruction*>(sinkinst),rawstr.str());
-//			}
-//			else {
-//				assert(false && "instruction of source node not found");
-//			}
-//		}
-//		else
-//			assert(false && "instruction of source node not found");
-//	}
-//}
-
-/*!
- * Adds some information to the metadata of a source instruction.
+ *
  */
 void SaberAnnotator::annotateSource() {
-	std::string str;
-	raw_string_ostream rawstr(str);
-	rawstr << SB_SLICESOURCE ; //<< _curSlice->getSource()->getId();
+    std::string str;
+    raw_string_ostream rawstr(str);
+    rawstr << SB_SLICESOURCE ; //<< _curSlice->getSource()->getId();
 
-	if(const Value* v = _curSlice->getLLVMValue(_curSlice->getSource())) {
-		if(const Instruction* sourceinst = dyn_cast<Instruction>(v)) 
-			addMDTag(const_cast<Instruction*>(sourceinst),rawstr.str());
-		else 
-			assert(false && "instruction of source node not found");
-	}
-	else
-		assert(false && "instruction of source node not found");
+    if (const Value * v = _curSlice->getLLVMValue(_curSlice->getSource())) {
+        if (const Instruction * sourceinst = dyn_cast<Instruction>(v))
+            addMDTag(const_cast<Instruction *>(sourceinst), rawstr.str());
+        else
+            assert(false && "instruction of source node not found");
+    }
+    else
+        assert(false && "instruction of source node not found");
 
 }
 
@@ -97,20 +56,20 @@ void SaberAnnotator::annotateSource() {
  * Adds some information to the metadata of a sink instruction.
  */
 void SaberAnnotator::annotateSinks() {
-	for(ProgSlice::SVFGNodeSet::iterator it = _curSlice->getSinks().begin(),
-			eit = _curSlice->getSinks().end(); it!=eit; ++it) {
-		if(const ActualParmSVFGNode* ap = dyn_cast<ActualParmSVFGNode>(*it)) {
-			const Instruction* sinkinst = ap->getCallSite().getInstruction();
-			assert(isa<CallInst>(sinkinst) && "not a call instruction?");
-			const CallInst* sink = cast<CallInst>(sinkinst);
-			std::string str;
-			raw_string_ostream rawstr(str);
-			rawstr << SB_SLICESINK << _curSlice->getSource()->getId();
-			addMDTag(const_cast<CallInst*>(sink),sink->getArgOperand(0),rawstr.str());
-		}
-		else
-			assert(false && "sink node is not a actual parameter?");
-	}
+    for(ProgSlice::SVFGNodeSet::iterator it = _curSlice->getSinks().begin(),
+            eit = _curSlice->getSinks().end(); it!=eit; ++it) {
+        if(const ActualParmSVFGNode* ap = dyn_cast<ActualParmSVFGNode>(*it)) {
+            const Instruction* sinkinst = ap->getCallSite().getInstruction();
+            assert(isa<CallInst>(sinkinst) && "not a call instruction?");
+            const CallInst* sink = cast<CallInst>(sinkinst);
+            std::string str;
+            raw_string_ostream rawstr(str);
+            rawstr << SB_SLICESINK << _curSlice->getSource()->getId();
+            addMDTag(const_cast<CallInst*>(sink),sink->getArgOperand(0),rawstr.str());
+        }
+        else
+            assert(false && "sink node is not a actual parameter?");
+    }
 }
 
 /*!
@@ -118,13 +77,13 @@ void SaberAnnotator::annotateSinks() {
  */
 void SaberAnnotator::annotateFeasibleBranch(const BranchInst *brInst, u32_t succPos) {
 
-	assert((succPos == 0 || succPos == 1) && "branch instruction should only have two successors");
+    assert((succPos == 0 || succPos == 1) && "branch instruction should only have two successors");
 
-	std::string str;
-	raw_string_ostream rawstr(str);
-	rawstr << SB_FESIBLE << _curSlice->getSource()->getId();
-	BranchInst* br = const_cast<BranchInst*>(brInst);
-	addMDTag(br,br->getCondition(),rawstr.str());
+    std::string str;
+    raw_string_ostream rawstr(str);
+    rawstr << SB_FESIBLE << _curSlice->getSource()->getId();
+    BranchInst* br = const_cast<BranchInst*>(brInst);
+    addMDTag(br,br->getCondition(),rawstr.str());
 }
 
 /*!
@@ -132,13 +91,13 @@ void SaberAnnotator::annotateFeasibleBranch(const BranchInst *brInst, u32_t succ
  */
 void SaberAnnotator::annotateInfeasibleBranch(const BranchInst *brInst, u32_t succPos) {
 
-	assert((succPos == 0 || succPos == 1) && "branch instruction should only have two successors");
+    assert((succPos == 0 || succPos == 1) && "branch instruction should only have two successors");
 
-	std::string str;
-	raw_string_ostream rawstr(str);
-	rawstr << SB_INFESIBLE << _curSlice->getSource()->getId();
-	BranchInst* br = const_cast<BranchInst*>(brInst);
-	addMDTag(br,br->getCondition(),rawstr.str());
+    std::string str;
+    raw_string_ostream rawstr(str);
+    rawstr << SB_INFESIBLE << _curSlice->getSource()->getId();
+    BranchInst* br = const_cast<BranchInst*>(brInst);
+    addMDTag(br,br->getCondition(),rawstr.str());
 }
 
 
@@ -146,7 +105,7 @@ void SaberAnnotator::annotateInfeasibleBranch(const BranchInst *brInst, u32_t su
  * Annotate switch instruction and its corresponding feasible path
  */
 void SaberAnnotator::annotateSwitch(SwitchInst *switchInst, u32_t succPos) {
-	assert(succPos < switchInst->getNumSuccessors() && "successor position not correct!");
+    assert(succPos < switchInst->getNumSuccessors() && "successor position not correct!");
 }
 
 

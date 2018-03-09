@@ -2,8 +2,8 @@
 //
 //                     SVF: Static Value-Flow Analysis
 //
-// Copyright (C) <2013-2016>  <Yulei Sui>
-// Copyright (C) <2013-2016>  <Jingling Xue>
+// Copyright (C) <2013-2017>  <Yulei Sui>
+//
 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -26,6 +26,7 @@
  *  Created on: Apr 15, 2014
  *      Author: Yulei Sui
  */
+#include "Util/SVFModule.h"
 #include "MSSA/MemSSA.h"
 #include "MSSA/SVFG.h"
 #include "MSSA/SVFGBuilder.h"
@@ -34,8 +35,13 @@
 using namespace llvm;
 using namespace analysisUtil;
 
-static cl::opt<bool> IndCallWithPreAnalysis("svfgIndCallPreAna", cl::init(false),
+static cl::opt<bool> SVFGWithIndirectCall("svfgWithIndCall", cl::init(false),
         cl::desc("Update Indirect Calls for SVFG using pre-analysis"));
+
+static cl::opt<bool> SingleVFG("singleVFG", cl::init(false),
+                               cl::desc("Create a single VFG shared by multiple analysis"));
+
+SVFGOPT* SVFGBuilder::globalSvfg = NULL;
 
 /*!
  * Create SVFG
@@ -43,9 +49,29 @@ static cl::opt<bool> IndCallWithPreAnalysis("svfgIndCallPreAna", cl::init(false)
 void SVFGBuilder::createSVFG(MemSSA* mssa, SVFG* graph) {
     svfg = graph;
     svfg->buildSVFG(mssa);
-//    if(mssa->getPTA()->printStat())
-//        svfg->performStat();
-//    svfg->dump("FS_SVFG");
+    // if(mssa->getPTA()->printStat())
+    //     svfg->performStat();
+    // svfg->dump("FS_SVFG");
+}
+
+/// Create DDA SVFG
+SVFGOPT* SVFGBuilder::buildSVFG(BVDataPTAImpl* pta, bool withAOFI) {
+
+    if(SingleVFG) {
+        if(globalSvfg==NULL) {
+            /// Note that we use callgraph from andersen analysis here
+            globalSvfg = new SVFGOPT();
+            if (withAOFI) globalSvfg->setTokeepActualOutFormalIn();
+            build(globalSvfg,pta);
+        }
+        return globalSvfg;
+    }
+    else {
+        SVFGOPT* vfg = new SVFGOPT();
+        if (withAOFI) vfg->setTokeepActualOutFormalIn();
+        build(vfg,pta);
+        return vfg;
+    }
 }
 
 /*!
@@ -60,43 +86,39 @@ void SVFGBuilder::releaseMemory(SVFG* vfg) {
  */
 bool SVFGBuilder::build(SVFG* graph,BVDataPTAImpl* pta) {
 
-    MemSSA mssa(pta);
+    MemSSA* mssa = new MemSSA(pta);
 
     DBOUT(DGENERAL, outs() << pasMsg("Build Memory SSA \n"));
 
     DominatorTree dt;
     MemSSADF df;
 
-    for (llvm::Module::iterator iter = pta->getModule()->begin(), eiter = pta->getModule()->end();
+    SVFModule svfModule = pta->getModule();
+    for (SVFModule::iterator iter = svfModule.begin(), eiter = svfModule.end();
             iter != eiter; ++iter) {
 
-        llvm::Function& fun = *iter;
-
-//	if(!LocalCallGraphAnalysis::isRelevantFunction(&fun)) 
-//		continue;
-
-//	if(!GraphMinimizer::isRelevantFunction(&fun)) 
-//		continue;
-
-        if (analysisUtil::isExtCall(&fun))
+        llvm::Function *fun = *iter;
+        if (analysisUtil::isExtCall(fun))
             continue;
 
-        dt.recalculate(fun);
+        dt.recalculate(*fun);
         df.runOnDT(dt);
 
-        mssa.buildMemSSA(fun, &df, &dt);
+        mssa->buildMemSSA(*fun, &df, &dt);
     }
 
-//    mssa.performStat();
-//    mssa.dumpMSSA();
+    // mssa->performStat();
+    // mssa->dumpMSSA();
 
     DBOUT(DGENERAL, outs() << pasMsg("Build Sparse Value-Flow Graph \n"));
 
-    createSVFG(&mssa, graph);
+    createSVFG(mssa, graph);
 
-    if(IndCallWithPreAnalysis)
-        updateCallGraph(mssa.getPTA());
-    releaseMemory(graph);
+    if(SVFGWithIndirectCall || SVFGWithIndCall)
+        updateCallGraph(mssa->getPTA());
+
+    //delete MSSA when required (on-call)
+    //releaseMemory(graph);
 
     return false;
 }

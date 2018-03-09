@@ -2,8 +2,8 @@
 //
 //                     SVF: Static Value-Flow Analysis
 //
-// Copyright (C) <2013-2016>  <Yulei Sui>
-// Copyright (C) <2013-2016>  <Jingling Xue>
+// Copyright (C) <2013-2017>  <Yulei Sui>
+//
 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -24,7 +24,7 @@
  * ThreadAPI.cpp
  *
  *  Created on: Jan 21, 2014
- *      Author: Yulei Sui
+ *      Author: Yulei Sui, dye
  */
 
 #ifndef THREADAPI_CPP_
@@ -63,11 +63,13 @@ static const ei_pair ei_pairs[]= {
     {"pthread_rwlock_rdlock", ThreadAPI::TD_ACQUIRE},
     {"sem_wait", ThreadAPI::TD_ACQUIRE},
     {"_spin_lock", ThreadAPI::TD_ACQUIRE},
+    {"SRE_SplSpecLockEx", ThreadAPI::TD_ACQUIRE},
     {"pthread_mutex_trylock", ThreadAPI::TD_TRY_ACQUIRE},
     {"pthread_mutex_unlock", ThreadAPI::TD_RELEASE},
     {"pthread_rwlock_unlock", ThreadAPI::TD_RELEASE},
-    {"_spin_unlock", ThreadAPI::TD_RELEASE},
     {"sem_post", ThreadAPI::TD_RELEASE},
+    {"_spin_unlock", ThreadAPI::TD_RELEASE},
+    {"SRE_SplSpecUnlockEx", ThreadAPI::TD_RELEASE},
 //    {"pthread_cancel", ThreadAPI::TD_CANCEL},
     {"pthread_exit", ThreadAPI::TD_EXIT},
     {"pthread_detach", ThreadAPI::TD_DETACH},
@@ -78,6 +80,11 @@ static const ei_pair ei_pairs[]= {
     {"pthread_cond_destroy", ThreadAPI::TD_CONDVAR_DESTROY},
     {"pthread_mutex_init", ThreadAPI::TD_MUTEX_INI},
     {"pthread_mutex_destroy", ThreadAPI::TD_MUTEX_DESTROY},
+    {"pthread_barrier_init", ThreadAPI::TD_BAR_INIT},
+    {"pthread_barrier_wait", ThreadAPI::TD_BAR_WAIT},
+
+    // Hare APIs
+    {"hare_parallel_for", ThreadAPI::HARE_PAR_FOR},
 
     //This must be the last entry.
     {0, ThreadAPI::TD_DUMMY}
@@ -166,15 +173,21 @@ void ThreadAPI::statInit(StringMap<u32_t>& tdAPIStatMap) {
     tdAPIStatMap["pthread_mutex_init"] = 0;
 
     tdAPIStatMap["pthread_mutex_destroy"] = 0;
+
+    tdAPIStatMap["pthread_barrier_init"] = 0;
+
+    tdAPIStatMap["pthread_barrier_wait"] = 0;
+
+    tdAPIStatMap["hare_parallel_for"] = 0;
 }
 
-void ThreadAPI::performAPIStat(Module* module) {
+void ThreadAPI::performAPIStat(SVFModule module) {
 
     StringMap<u32_t> tdAPIStatMap;
 
     statInit(tdAPIStatMap);
 
-    for (Module::iterator it = module->begin(), eit = module->end(); it != eit;
+    for (SVFModule::iterator it = module.begin(), eit = module.end(); it != eit;
             ++it) {
 
         for (inst_iterator II = inst_begin(*it), E = inst_end(*it); II != E;
@@ -245,6 +258,18 @@ void ThreadAPI::performAPIStat(Module* module) {
                 tdAPIStatMap["pthread_mutex_destroy"]++;
                 break;
             }
+            case TD_BAR_INIT: {
+                tdAPIStatMap["pthread_barrier_init"]++;
+                break;
+            }
+            case TD_BAR_WAIT: {
+                tdAPIStatMap["pthread_barrier_wait"]++;
+                break;
+            }
+            case HARE_PAR_FOR: {
+                tdAPIStatMap["hare_parallel_for"]++;
+                break;
+            }
             case TD_DUMMY: {
                 break;
             }
@@ -253,7 +278,7 @@ void ThreadAPI::performAPIStat(Module* module) {
 
     }
 
-    StringRef n(module->getModuleIdentifier());
+    StringRef n(module.getModuleIdentifier());
     StringRef name = n.split('/').second;
     name = name.split('.').first;
     std::cout << "################ (program : " << name.str()

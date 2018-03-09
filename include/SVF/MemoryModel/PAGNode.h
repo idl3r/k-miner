@@ -2,8 +2,8 @@
 //
 //                     SVF: Static Value-Flow Analysis
 //
-// Copyright (C) <2013-2016>  <Yulei Sui>
-// Copyright (C) <2013-2016>  <Jingling Xue>
+// Copyright (C) <2013-2017>  <Yulei Sui>
+//
 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -184,6 +184,36 @@ public:
         addOutgoingEdge(outEdge);
     }
     //@}
+    /// Overloading operator << for dumping PAGNode value
+    //@{
+    friend llvm::raw_ostream& operator<< (llvm::raw_ostream &o, const PAGNode &node) {
+        o << "NodeID: " << node.getId() << "\t, Node Kind: ";
+        if (node.getNodeKind() == ValNode ||
+                node.getNodeKind() == GepValNode ||
+                node.getNodeKind() == DummyValNode) {
+            o << "ValPN\n";
+        } else if (node.getNodeKind() == ObjNode ||
+                   node.getNodeKind() == GepObjNode ||
+                   node.getNodeKind() == FIObjNode ||
+                   node.getNodeKind() == DummyObjNode) {
+            o << "ObjPN\n";
+        } else if (node.getNodeKind() == RetNode) {
+            o << "RetPN\n";
+        } else {
+            o << "otherPN\n";
+        }
+        if (node.hasValue()) {
+            const llvm::Value *val = node.getValue();
+            if (const llvm::Function *fun = llvm::dyn_cast<llvm::Function>(val))
+                o << "Value: function " << fun->getName().str();
+            else
+                o << "Value: " << *val;
+        } else {
+            o << "Empty Value";
+        }
+        return o;
+    }
+    //@}
 };
 
 
@@ -278,6 +308,8 @@ class GepValPN: public ValPN {
 
 private:
     LocationSet ls;	// LocationSet
+    const llvm::Type *type;
+    u32_t fieldIdx;
 
 public:
     /// Methods for support type inquiry through isa, cast, and dyn_cast:
@@ -297,8 +329,8 @@ public:
     //@}
 
     /// Constructor
-    GepValPN(const llvm::Value* val, NodeID i, const LocationSet& l) :
-        ValPN(val, i, GepValNode), ls(l) {
+    GepValPN(const llvm::Value* val, NodeID i, const LocationSet& l, const llvm::Type *ty, u32_t idx) :
+        ValPN(val, i, GepValNode), ls(l), type(ty), fieldIdx(idx) {
     }
 
     /// offset of the base value node
@@ -309,8 +341,16 @@ public:
     /// Return name of a LLVM value
     const std::string getValueName() {
         if (value && value->hasName())
-            return value->getName().str() + "_" + llvm::utostr_32(getOffset());
-        return "offset_" + llvm::utostr_32(getOffset());
+            return value->getName().str() + "_" + llvm::utostr(getOffset());
+        return "offset_" + llvm::utostr(getOffset());
+    }
+
+    const llvm::Type *getType() const {
+        return type;
+    }
+
+    u32_t getFieldIdx() const {
+        return fieldIdx;
     }
 };
 

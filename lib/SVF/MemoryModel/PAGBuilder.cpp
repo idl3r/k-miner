@@ -2,8 +2,8 @@
 //
 //                     SVF: Static Value-Flow Analysis
 //
-// Copyright (C) <2013-2016>  <Yulei Sui>
-// Copyright (C) <2013-2016>  <Jingling Xue>
+// Copyright (C) <2013-2017>  <Yulei Sui>
+//
 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -28,7 +28,9 @@
  */
 
 #include "MemoryModel/PAGBuilder.h"
+#include "Util/SVFModule.h"
 #include "Util/AnalysisUtil.h"
+#include "Util/CPPUtil.h"
 
 #include <fstream>	// for PAGBuilderFromFile
 #include <string>	// for PAGBuilderFromFile
@@ -43,21 +45,19 @@ using namespace analysisUtil;
 /*!
  * Start building PAG here
  */
-PAG* PAGBuilder::build(llvm::Module& module) {
+PAG* PAGBuilder::build(SVFModule svfModule) {
+    svfMod = svfModule;
     /// initial external library information
     /// initial PAG nodes
     initalNode();
     /// initial PAG edges:
-    /// handle globals
-    visitGlobal(module);
+    ///// handle globals
+    visitGlobal(svfModule);
+    ///// collect exception vals in the program
     /// handle functions
-    for (llvm::Module::iterator fit = module.begin(), efit = module.end();
+    for (SVFModule::iterator fit = svfModule.begin(), efit = svfModule.end();
             fit != efit; ++fit) {
-        llvm::Function& fun = *fit;
-
-//	if(!GraphMinimizer::isRelevantFunction(&fun)) 
-//		continue;
-
+        llvm::Function& fun = **fit;
         /// collect return node of function fun
         if(!analysisUtil::isExtCall(&fun)) {
             /// Return PAG node will not be created for function which can not
@@ -72,8 +72,7 @@ PAG* PAGBuilder::build(llvm::Module& module) {
                 I != E; ++I) {
             /// To be noted, we do not record arguments which are in declared function without body
             if(!analysisUtil::isExtCall(&fun)) {
-//		    outs() << "is not external " << fun.getName() << "\n";
-                pag->setCurrentLocation(NULL,&fun.getEntryBlock());
+                pag->setCurrentLocation(&*I,&fun.getEntryBlock());
                 NodeID argValNodeId = pag->getValueNode(&*I);
                 // if this is the function does not have caller (e.g. main)
                 // or a dead function, we may create a black hole address edge for it
@@ -81,10 +80,7 @@ PAG* PAGBuilder::build(llvm::Module& module) {
                     if(I->getType()->isPointerTy())
                         pag->addBlackHoleAddrEdge(argValNodeId);
                 }
-                /// We do not add arguments of main (program entry) into argument list
-                /// Because, later we don't manipulate them for connection of formal and actual parameters
-                else
-                    pag->addFunArgs(&fun,pag->getPAGNode(argValNodeId));
+                pag->addFunArgs(&fun,pag->getPAGNode(argValNodeId));
             }
         }
         for (llvm::Function::iterator bit = fun.begin(), ebit = fun.end();
@@ -93,7 +89,6 @@ PAG* PAGBuilder::build(llvm::Module& module) {
             for (llvm::BasicBlock::iterator it = bb.begin(), eit = bb.end();
                     it != eit; ++it) {
                 llvm::Instruction& inst = *it;
-//		inst.dump();
                 pag->setCurrentLocation(&inst,&bb);
                 visit(inst);
             }
@@ -118,9 +113,6 @@ void PAGBuilder::initalNode() {
     pag->addConstantObjNode();
     pag->addBlackholePtrNode();
     pag->addNullPtrNode();
-
-    /// let all undef value or non-determined pointers points-to black hole
-    pag->addBlackHoleAddrEdge(symTable->blkPtrSymID());
 
     for (SymbolTableInfo::ValueToIDMapTy::iterator iter =
                 symTable->valSyms().begin(); iter != symTable->valSyms().end();
@@ -173,25 +165,61 @@ bool PAGBuilder::computeGepOffset(const User *V, LocationSet& ls) {
  * Handle constant expression, and connect the gep edge
  */
 void PAGBuilder::processCE(const Value *val) {
-    if (const Constant* conVal = dyn_cast<Constant>(val)) {
-        const Value* ref = stripConstantCasts(conVal);
+    if (const Constant* ref = dyn_cast<Constant>(val)) {
+        if (!isa<PointerType>(ref->getType()))
+            return;
         if (const ConstantExpr* gepce = isGepConstantExpr(ref)) {
             DBOUT(DPAGBuild,
-                  outs() << "handle constant expression " << *ref << "\n");
+                  outs() << "handle gep constant expression " << *ref << "\n");
             const Constant* opnd = gepce->getOperand(0);
             LocationSet ls;
             bool constGep = computeGepOffset(gepce, ls);
             // must invoke pag methods here, otherwise it will be a dead recursion cycle
-            if (constGep)
-                pag->addGepEdge(pag->getValueNode(opnd), pag->getValueNode(gepce), ls);
-            else
-                pag->addVariantGepEdge(pag->getValueNode(opnd), pag->getValueNode(gepce));
+            const llvm::Value* cval = pag->getCurrentValue();
+            const llvm::BasicBlock* cbb = pag->getCurrentBB();
+            pag->setCurrentLocation(gepce, NULL);
+            /*
+             * The gep edge created are like constexpr (same edge may appear at multiple callsites)
+             * so bb/inst of this edge may be rewritten several times, we treat it as global here.
+             */
+            pag->addGepEdge(pag->getValueNode(opnd), pag->getValueNode(gepce), ls, constGep);
+            pag->setCurrentLocation(cval, cbb);
             // handle recursive constant express case (gep (bitcast (gep X 1)) 1)
             processCE(opnd);
         }
+        else if (const ConstantExpr* castce = isCastConstantExpr(ref)) {
+            DBOUT(DPAGBuild,
+                  outs() << "handle cast constant expression " << *ref << "\n");
+            const Constant* opnd = castce->getOperand(0);
+            const llvm::Value* cval = pag->getCurrentValue();
+            const llvm::BasicBlock* cbb = pag->getCurrentBB();
+            pag->setCurrentLocation(castce, NULL);
+            pag->addCopyEdge(pag->getValueNode(opnd), pag->getValueNode(castce));
+            pag->setCurrentLocation(cval, cbb);
+            processCE(opnd);
+        }
+        else if (const ConstantExpr* selectce = isSelectConstantExpr(ref)) {
+            DBOUT(DPAGBuild,
+                  outs() << "handle select constant expression " << *ref << "\n");
+            const Constant* src1 = selectce->getOperand(1);
+            const Constant* src2 = selectce->getOperand(2);
+            const llvm::Value* cval = pag->getCurrentValue();
+            const llvm::BasicBlock* cbb = pag->getCurrentBB();
+            pag->setCurrentLocation(selectce, NULL);
+            NodeID nsrc1 = pag->getValueNode(src1);
+            NodeID nsrc2 = pag->getValueNode(src2);
+            NodeID nres = pag->getValueNode(selectce);
+            pag->addCopyEdge(nsrc1, nres);
+            pag->addCopyEdge(nsrc2, nres);
+            pag->addPhiNode(pag->getPAGNode(nres),pag->getPAGNode(nsrc1),NULL);
+            pag->addPhiNode(pag->getPAGNode(nres),pag->getPAGNode(nsrc2),NULL);
+            pag->setCurrentLocation(cval, cbb);
+            processCE(src1);
+            processCE(src2);
+        }
         // if we meet a int2ptr, then it points-to black hole
         else if (const ConstantExpr* int2Ptrce = isInt2PtrConstantExpr(ref)) {
-            pag->addGlobalBlackHoleAddrEdge(pag->getValueNode(int2Ptrce));
+            pag->addGlobalBlackHoleAddrEdge(pag->getValueNode(int2Ptrce), int2Ptrce);
         }
     }
 }
@@ -200,7 +228,7 @@ void PAGBuilder::processCE(const Value *val) {
  * FIXME:Here we only get the field that actually used in the program
  * We ignore the initialization of global variable field that not used in the program
  */
-NodeID PAGBuilder::getGlobalVarField(const GlobalVariable *gvar, Size_t offset) {
+NodeID PAGBuilder::getGlobalVarField(const GlobalVariable *gvar, u32_t offset, u32_t fieldidx) {
 
     // if the global variable do not have any field needs to be initialized
     if (offset == 0 && gvar->getInitializer()->getType()->isSingleValueType()) {
@@ -208,8 +236,12 @@ NodeID PAGBuilder::getGlobalVarField(const GlobalVariable *gvar, Size_t offset) 
     }
     /// if we did not find the constant expression in the program,
     /// then we need to create a gep node for this field
-    else
-        return pag->getGepValNode(gvar, LocationSet(offset));
+    else {
+        const Type *gvartype = gvar->getType();
+        while (const PointerType *ptype = dyn_cast<PointerType>(gvartype))
+            gvartype = ptype->getElementType();
+        return pag->getGepValNode(gvar, LocationSet(offset), gvartype, fieldidx);
+    }
 }
 
 /*For global variable initialization
@@ -224,41 +256,41 @@ NodeID PAGBuilder::getGlobalVarField(const GlobalVariable *gvar, Size_t offset) 
  * struct Z n = {10,&z.s}; // store z.s n ,  &z.s constant expression (constant expression)
  */
 void PAGBuilder::InitialGlobal(const GlobalVariable *gvar, Constant *C,
-                               Size_t offset) {
+                               u32_t offset, u32_t fieldidx) {
     DBOUT(DPAGBuild,
           outs() << "global " << *gvar << " constant initializer: " << *C
           << "\n");
 
-//    outs() << "initglobal= " << gvar->getName() << "\n";
-
     if (C->getType()->isSingleValueType() && isa<PointerType>(C->getType())) {
-        const Value *C1 = stripConstantCasts(C);
-
-        NodeID src = getValueNode(C1);
+        NodeID src = getValueNode(C);
         // get the field value if it is avaiable, otherwise we create a dummy field node.
-        NodeID field = getGlobalVarField(gvar, offset);
+        pag->setCurrentLocation(gvar, NULL);
+        NodeID field = getGlobalVarField(gvar, offset, fieldidx);
 
-        if (isa<GlobalVariable>(C1) || isa<Function>(C1)) {
+        if (isa<GlobalVariable>(C) || isa<Function>(C)) {
+            pag->setCurrentLocation(C, NULL);
             pag->addStoreEdge(src, field);
-        } else if (isa<ConstantExpr>(C1)) {
+        } else if (isa<ConstantExpr>(C)) {
             // add gep edge of C1 itself is a constant expression
-            processCE(C1);
+            processCE(C);
+            pag->setCurrentLocation(C, NULL);
             pag->addStoreEdge(src, field);
         } else {
             //TODO:assert(false,"what else do we have");
         }
 
     } else if (isa<ConstantArray>(C)) {
-        for (u32_t i = 0, e = C->getNumOperands(); i != e; i++)
-            InitialGlobal(gvar, cast<Constant>(C->getOperand(i)), offset);
+        if (cppUtil::isValVtbl(gvar) == false)
+            for (u32_t i = 0, e = C->getNumOperands(); i != e; i++)
+                InitialGlobal(gvar, cast<Constant>(C->getOperand(i)), offset, i);
 
     } else if (isa<ConstantStruct>(C)) {
         const StructType *sty = cast<StructType>(C->getType());
         const std::vector<u32_t>& offsetvect =
             SymbolTableInfo::Symbolnfo()->getStructOffsetVec(sty);
         for (u32_t i = 0, e = C->getNumOperands(); i != e; i++) {
-            Size_t off = offsetvect[i];
-            InitialGlobal(gvar, cast<Constant>(C->getOperand(i)), offset + off);
+            u32_t off = offsetvect[i];
+            InitialGlobal(gvar, cast<Constant>(C->getOperand(i)), offset + off, i);
         }
 
     } else {
@@ -266,53 +298,48 @@ void PAGBuilder::InitialGlobal(const GlobalVariable *gvar, Constant *C,
     }
 }
 
-/*
- * Visit global variables for building PAG
+/*!
+ *  Visit global variables for building PAG
  */
-void PAGBuilder::visitGlobal(llvm::Module& module) {
+void PAGBuilder::visitGlobal(SVFModule svfModule) {
 
     /// initialize global variable
-    for (Module::global_iterator I = module.global_begin(), E =
-                module.global_end(); I != E; ++I) {
-        GlobalVariable * gvar = &*I;
-
-//	if(!LocalCallGraphAnalysis::isRelevantVal(gvar))
-//		continue;
-
-//	if(!GraphMinimizer::isRelevantVal(gvar))
-//		continue;
-
+    for (SVFModule::global_iterator I = svfModule.global_begin(), E =
+                svfModule.global_end(); I != E; ++I) {
+        GlobalVariable *gvar = *I;
         NodeID idx = getValueNode(gvar);
         NodeID obj = getObjectNode(gvar);
+
+        pag->setCurrentLocation(gvar, NULL);
         pag->addAddrEdge(obj, idx);
 
         if (gvar->hasDefinitiveInitializer()) {
             Constant *C = gvar->getInitializer();
             DBOUT(DPAGBuild, outs() << "add global var node " << *gvar << "\n");
-            InitialGlobal(gvar, C, 0);
+            InitialGlobal(gvar, C, 0, 0);
         }
     }
 
     /// initialize global functions
-    for (Module::iterator I = module.begin(), E =
-                module.end(); I != E; ++I) {
-        Function * fun = &*I;
-
-//	if(!LocalCallGraphAnalysis::isRelevantFunction(fun)) 
-//		continue;
-
-//	if(!GraphMinimizer::isRelevantFunction(fun)) 
-//		continue;
-
+    for (SVFModule::iterator I = svfModule.begin(), E =
+                svfModule.end(); I != E; ++I) {
+        Function *fun = *I;
         NodeID idx = getValueNode(fun);
         NodeID obj = getObjectNode(fun);
 
         DBOUT(DPAGBuild, outs() << "add global function node " << fun->getName() << "\n");
+        pag->setCurrentLocation(fun, NULL);
         pag->addAddrEdge(obj, idx);
     }
 
-    /// initial global aliases
-    /// for now we do not implement this
+    // Handle global aliases (due to linkage of multiple bc files), e.g., @x = internal alias @y. We need to add a copy from y to x.
+    for (SVFModule::alias_iterator I = svfModule.alias_begin(), E = svfModule.alias_end(); I != E; I++) {
+        NodeID dst = pag->getValueNode(*I);
+        NodeID src = pag->getValueNode((*I)->getAliasee());
+        processCE((*I)->getAliasee());
+        pag->setCurrentLocation(*I, NULL);
+        pag->addCopyEdge(src,dst);
+    }
 }
 
 /*!
@@ -411,10 +438,7 @@ void PAGBuilder::visitGetElementPtrInst(GetElementPtrInst &inst) {
 
     LocationSet ls;
     bool constGep = computeGepOffset(&inst, ls);
-    if (constGep)
-        pag->addGepEdge(src, dst, ls);
-    else
-        pag->addVariantGepEdge(src, dst);
+    pag->addGepEdge(src, dst, ls, constGep);
 }
 
 /*!
@@ -487,10 +511,10 @@ void PAGBuilder::visitCallSite(CallSite cs) {
 
     /// Collect callsite arguments and returns
     for(CallSite::arg_iterator itA = cs.arg_begin(), ieA = cs.arg_end(); itA!=ieA; ++itA)
-        pag->addCallSiteArgs(cs,pag->getPAGNode(pag->getValueNode(*itA)));
+        pag->addCallSiteArgs(cs,pag->getPAGNode(getValueNode(*itA)));
 
     if(!cs.getType()->isVoidTy())
-        pag->addCallSiteRets(cs,pag->getPAGNode(pag->getValueNode(cs.getInstruction())));
+        pag->addCallSiteRets(cs,pag->getPAGNode(getValueNode(cs.getInstruction())));
 
     const Function *callee = getCallee(cs);
 
@@ -515,7 +539,7 @@ void PAGBuilder::visitReturnInst(ReturnInst &inst) {
 
     //ignore void and non-ptr return statements
     if (inst.getNumOperands()
-            && isa<PointerType>(inst.getOperand(0)->getType())) {
+            && (isa<PointerType>(inst.getOperand(0)->getType()))) {
 
         DBOUT(DPAGBuild, outs() << "process return  " << inst << " \n");
 
@@ -542,6 +566,7 @@ void PAGBuilder::visitReturnInst(ReturnInst &inst) {
  * Is that necessary treat extract value as getelementptr instruction later to get more precise results?
  */
 void PAGBuilder::visitExtractValueInst(llvm::ExtractValueInst &inst) {
+
     if (isa<PointerType>(inst.getType())) {
         NodeID dst = getValueNode(&inst);
         pag->addBlackHoleAddrEdge(dst);
@@ -584,8 +609,9 @@ void PAGBuilder::handleDirectCall(CallSite cs, const Function *F) {
             // This is a int2ptr cast during parameter passing
             pag->addBlackHoleAddrEdge(dstrec);
         }
+
     } else {
-        DBOUT(DPAGBuild, outs() << "not a pointer ignored\n");
+        DBOUT(DPAGBuild, outs() << "not a pointer, ignored\n");
     }
     //Iterators for the actual and formal parameters
     CallSite::arg_iterator itA = cs.arg_begin(), ieA = cs.arg_end();
@@ -611,7 +637,7 @@ void PAGBuilder::handleDirectCall(CallSite cs, const Function *F) {
             pag->addCallEdge(srcAA, dstFA, cs.getInstruction());
         } else {
             // This is a int2ptr cast during parameter passing
-            pag->addFormalParamBlackHoleAddrEdge(dstFA, F);
+            pag->addFormalParamBlackHoleAddrEdge(dstFA, &*itF);
         }
     }
     //Any remaining actual args must be varargs.
@@ -640,10 +666,10 @@ void PAGBuilder::handleDirectCall(CallSite cs, const Function *F) {
 
 
 /*!
- * Find the max possible offset of an object pointed to by (V).
+ * Find the base type and the max possible offset of an object pointed to by (V).
  */
-std::vector<LocationSet> PAGBuilder::getFlattenedFields(Value *V) {
-    return SymbolTableInfo::Symbolnfo()->getFlattenedFields(V);
+const Type *PAGBuilder::getBaseTypeAndFlattenedFields(Value *V, std::vector<LocationSet> &fields) {
+    return SymbolTableInfo::Symbolnfo()->getBaseTypeAndFlattenedFields(V, fields);
 }
 
 /*!
@@ -659,8 +685,10 @@ void PAGBuilder::addComplexConsForExt(Value *D, Value *S, u32_t sz) {
     std::vector<LocationSet> fields;
 
     //Get the max possible size of the copy, unless it was provided.
-    std::vector<LocationSet> srcFields = getFlattenedFields(S);
-    std::vector<LocationSet> dstFields = getFlattenedFields(D);
+    std::vector<LocationSet> srcFields;
+    std::vector<LocationSet> dstFields;
+    const Type *stype = getBaseTypeAndFlattenedFields(S, srcFields);
+    const Type *dtype = getBaseTypeAndFlattenedFields(D, dstFields);
     if(srcFields.size() > dstFields.size())
         fields = dstFields;
     else
@@ -674,8 +702,8 @@ void PAGBuilder::addComplexConsForExt(Value *D, Value *S, u32_t sz) {
 
     //For each field (i), add (Ti = *S + i) and (*D + i = Ti).
     for (u32_t index = 0; index < sz; index++) {
-        NodeID dField = pag->getGepValNode(D,fields[index]);
-        NodeID sField = pag->getGepValNode(S,fields[index]);
+        NodeID dField = pag->getGepValNode(D,fields[index],dtype,index);
+        NodeID sField = pag->getGepValNode(S,fields[index],stype,index);
         NodeID dummy = pag->addDummyValNode();
         pag->addLoadEdge(sField,dummy);
         pag->addStoreEdge(dummy,dField);
@@ -688,15 +716,30 @@ void PAGBuilder::addComplexConsForExt(Value *D, Value *S, u32_t sz) {
  */
 void PAGBuilder::handleExtCall(CallSite cs, const Function *callee) {
     const Instruction* inst = cs.getInstruction();
-    if (isHeapAllocExtCall(inst)) {
-        NodeID val = getValueNode(inst);
+    if (isHeapAllocOrStaticExtCall(cs)) {
         NodeID obj = getObjectNode(inst);
-        pag->addAddrEdge(obj, val);
-    }
-    else if(isStaticExtCall(inst)) {
-        NodeID val = getValueNode(inst);
-        NodeID obj = getObjectNode(inst);
-        pag->addAddrEdge(obj, val);
+        // case 1: ret = new obj
+        if (isHeapAllocExtCallViaRet(cs) || isStaticExtCall(cs)) {
+            NodeID val = getValueNode(inst);
+            NodeID obj = getObjectNode(inst);
+            pag->addAddrEdge(obj, val);
+        }
+        // case 2: *arg = new obj
+        else {
+            assert(isHeapAllocExtCallViaArg(cs) && "Must be heap alloc call via arg.");
+            int arg_pos = getHeapAllocHoldingArgPosition(callee);
+            const Value *arg = cs.getArgument(arg_pos);
+            if (arg->getType()->isPointerTy()) {
+                NodeID vnArg = getValueNode(arg);
+                NodeID dummy = pag->addDummyValNode();
+                if (vnArg && dummy && obj) {
+                    pag->addAddrEdge(obj, dummy);
+                    pag->addStoreEdge(dummy, vnArg);
+                }
+            } else {
+                wrnMsg("Arg receiving new object must be pointer type");
+            }
+        }
     }
     else {
         if(isExtCall(callee)) {
@@ -806,7 +849,7 @@ void PAGBuilder::handleExtCall(CallSite cs, const Function *callee) {
             case ExtAPI::EFT_A2R_NEW:
             case ExtAPI::EFT_A4R_NEW:
             case ExtAPI::EFT_A11R_NEW: {
-                //TODO:: handle case here
+                assert(!"Alloc via arg cases are not handled here.");
                 break;
             }
             case ExtAPI::EFT_ALLOC:
@@ -824,10 +867,106 @@ void PAGBuilder::handleExtCall(CallSite cs, const Function *callee) {
             case ExtAPI::EFT_NOOP:
             case ExtAPI::EFT_FREE:
             case ExtAPI::EFT_KFREE:
-		break;
             case ExtAPI::EFT_KLOCK:
             case ExtAPI::EFT_KUNLOCK:
-		break;
+                break;
+            case ExtAPI::EFT_STD_RB_TREE_INSERT_AND_REBALANCE: {
+                Value *vArg1 = cs.getArgument(1);
+                Value *vArg3 = cs.getArgument(3);
+
+                // We have vArg3 points to the entry of _Rb_tree_node_base { color; parent; left; right; }.
+                // Now we calculate the offset from base to vArg3
+                NodeID vnArg3 = pag->getValueNode(vArg3);
+                Size_t offset = pag->getLocationSetFromBaseNode(vnArg3).getOffset();
+
+                // We get all flattened fields of base
+                vector<LocationSet> fields;
+                const Type *type = getBaseTypeAndFlattenedFields(vArg3, fields);
+                assert(fields.size() >= 4 && "_Rb_tree_node_base should have at least 4 fields.\n");
+
+                // We summarize the side effects: arg3->parent = arg1, arg3->left = arg1, arg3->right = arg1
+                // Note that arg0 is aligned with "offset".
+                for (int i = offset + 1; i <= offset + 3; ++i) {
+                    NodeID vnD = pag->getGepValNode(vArg3, fields[i], type, i);
+                    NodeID vnS = getValueNode(vArg1);
+                    if(vnD && vnS)
+                        pag->addStoreEdge(vnS,vnD);
+                }
+                break;
+            }
+            case ExtAPI::EFT_STD_RB_TREE_INCREMENT: {
+                NodeID vnD = pag->getValueNode(inst);
+
+                Value *vArg = cs.getArgument(0);
+                NodeID vnArg = pag->getValueNode(vArg);
+                Size_t offset = pag->getLocationSetFromBaseNode(vnArg).getOffset();
+
+                // We get all fields
+                vector<LocationSet> fields;
+                const Type *type = getBaseTypeAndFlattenedFields(vArg,fields);
+                assert(fields.size() >= 4 && "_Rb_tree_node_base should have at least 4 fields.\n");
+
+                // We summarize the side effects: ret = arg->parent, ret = arg->left, ret = arg->right
+                // Note that arg0 is aligned with "offset".
+                for (int i = offset + 1; i <= offset + 3; ++i) {
+                    NodeID vnS = pag->getGepValNode(vArg, fields[i], type, i);
+                    if(vnD && vnS)
+                        pag->addStoreEdge(vnS,vnD);
+                }
+                break;
+            }
+            case ExtAPI::EFT_STD_LIST_HOOK: {
+                Value *vSrc = cs.getArgument(0);
+                Value *vDst = cs.getArgument(1);
+                NodeID src = pag->getValueNode(vSrc);
+                NodeID dst = pag->getValueNode(vDst);
+                pag->addStoreEdge(src, dst);
+                break;
+            }
+            case ExtAPI::CPP_EFT_A0R_A1: {
+                SymbolTableInfo* symTable = SymbolTableInfo::Symbolnfo();
+                if (symTable->getModelConstants()) {
+                    NodeID vnD = pag->getValueNode(cs.getArgument(0));
+                    NodeID vnS = pag->getValueNode(cs.getArgument(1));
+                    pag->addStoreEdge(vnS, vnD);
+                }
+                break;
+            }
+            case ExtAPI::CPP_EFT_A0R_A1R: {
+                SymbolTableInfo* symTable = SymbolTableInfo::Symbolnfo();
+                if (symTable->getModelConstants()) {
+                    NodeID vnD = getValueNode(cs.getArgument(0));
+                    NodeID vnS = getValueNode(cs.getArgument(1));
+                    assert(vnD && vnS && "dst or src not exist?");
+                    NodeID dummy = pag->addDummyValNode();
+                    pag->addLoadEdge(vnS,dummy);
+                    pag->addStoreEdge(dummy,vnD);
+                }
+                break;
+            }
+            case ExtAPI::CPP_EFT_A1R: {
+                SymbolTableInfo* symTable = SymbolTableInfo::Symbolnfo();
+                if (symTable->getModelConstants()) {
+                    NodeID vnS = getValueNode(cs.getArgument(1));
+                    assert(vnS && "src not exist?");
+                    NodeID dummy = pag->addDummyValNode();
+                    pag->addLoadEdge(vnS,dummy);
+                }
+                break;
+            }
+            case ExtAPI::CPP_EFT_DYNAMIC_CAST: {
+                Value *vArg0 = cs.getArgument(0);
+                Value *retVal = cs.getInstruction();
+                NodeID src = getValueNode(vArg0);
+                assert(src && "src not exist?");
+                NodeID dst = getValueNode(retVal);
+                assert(dst && "dst not exist?");
+                pag->addCopyEdge(src, dst);
+                break;
+            }
+            case ExtAPI::EFT_CXA_BEGIN_CATCH: {
+                break;
+            }
             //default:
             case ExtAPI::EFT_OTHER: {
                 if(isa<PointerType>(inst->getType())) {
@@ -844,20 +983,48 @@ void PAGBuilder::handleExtCall(CallSite cs, const Function *callee) {
         /// create inter-procedural PAG edges for thread forks
         if(isThreadForkCall(inst)) {
             if(const Function* forkedFun = getLLVMFunction(getForkedFun(inst)) ) {
+                forkedFun = getDefFunForMultipleModule(forkedFun);
                 const Value* actualParm = getActualParmAtForkSite(inst);
                 /// pthread_create has 1 arg.
                 /// apr_thread_create has 2 arg.
                 assert((forkedFun->arg_size() <= 2) && "Size of formal parameter of start routine should be one");
                 if(forkedFun->arg_size() <= 2 && forkedFun->arg_size() >= 1) {
-                    const Argument* formalParm = &(forkedFun->getArgumentList().front());
+                    // const Argument* formalParm = &(forkedFun->getArgumentList().front());
+                    const Argument* formalParm = forkedFun->arg_begin();
                     /// Connect actual parameter to formal parameter of the start routine
                     if(isa<PointerType>(actualParm->getType()) && isa<PointerType>(formalParm->getType()) )
                         pag->addThreadForkEdge(pag->getValueNode(actualParm), pag->getValueNode(formalParm),inst);
                 }
             }
+            else {
+                /// handle indirect calls at pthread create APIs e.g., pthread_create(&t1, NULL, fp, ...);
+                ///const llvm::Value* fun = ThreadAPI::getThreadAPI()->getForkedFun(inst);
+                ///if(!isa<Function>(fun))
+                ///    pag->addIndirectCallsites(cs,pag->getValueNode(fun));
+            }
             /// If forkedFun does not pass to spawnee as function type but as void pointer
             /// remember to update inter-procedural callgraph/PAG/SVFG etc. when indirect call targets are resolved
             /// We don't connect the callgraph here, further investigation is need to hanle mod-ref during SVFG construction.
+        }
+
+        /// create inter-procedural PAG edges for hare_parallel_for calls
+        else if(isHareParForCall(inst)) {
+            if(const Function* taskFunc = getLLVMFunction(getTaskFuncAtHareParForSite(inst)) ) {
+                /// The task function of hare_parallel_for has 3 args.
+                assert((taskFunc->arg_size() == 3) && "Size of formal parameter of hare_parallel_for's task routine should be 3");
+                const Value* actualParm = getTaskDataAtHareParForSite(inst);
+                // const Argument* formalParm = &(taskFunc->getArgumentList().front());
+                const Argument* formalParm = taskFunc->arg_begin();
+                /// Connect actual parameter to formal parameter of the start routine
+                if(isa<PointerType>(actualParm->getType()) && isa<PointerType>(formalParm->getType()) )
+                    pag->addThreadForkEdge(pag->getValueNode(actualParm), pag->getValueNode(formalParm),inst);
+            }
+            else {
+                /// handle indirect calls at hare_parallel_for (e.g., hare_parallel_for(..., fp, ...);
+                ///const llvm::Value* fun = ThreadAPI::getThreadAPI()->getForkedFun(inst);
+                ///if(!isa<Function>(fun))
+                ///    pag->addIndirectCallsites(cs,pag->getValueNode(fun));
+            }
         }
 
         /// TODO: inter-procedural PAG edges for thread joins

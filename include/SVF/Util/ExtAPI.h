@@ -75,8 +75,19 @@ public:
         EFT_A2R_NEW,
         EFT_A4R_NEW,
         EFT_A11R_NEW,
-	EFT_KLOCK,	  // lock a given attribute
-	EFT_KUNLOCK,	  // unlocks a given attribute
+        EFT_STD_RB_TREE_INSERT_AND_REBALANCE,  // Some complex effects
+        EFT_STD_RB_TREE_INCREMENT,  // Some complex effects
+        EFT_STD_LIST_HOOK,  // Some complex effects
+
+        CPP_EFT_A0R_A1,   //stores arg1 into *arg0
+        CPP_EFT_A0R_A1R,  //copies *arg1 into *arg0
+        CPP_EFT_A1R,      //load arg1
+        EFT_CXA_BEGIN_CATCH,  //__cxa_begin_catch
+        CPP_EFT_DYNAMIC_CAST, // dynamic_cast
+        
+        EFT_KLOCK,    // lock a given attribute
+        EFT_KUNLOCK,      // unlocks a given attribute
+
         EFT_OTHER         //not found in the list
     };
 private:
@@ -115,9 +126,6 @@ public:
             funName = "llvm." + F->getName().split('.').second.split('.').first.str();
         }
         llvm::StringMap<extf_t>::const_iterator it= info.find(funName);
-//        if(it == info.end() || !F->isDeclaration())
-//      The check for the EFT_KALLOC is necessary, because if we analyse the kernel 
-//      there are definitions for the alloc-functions but we want to skip them.
         if(it == info.end() || !F->isDeclaration())
             return EFT_OTHER;
         else
@@ -125,17 +133,19 @@ public:
     }
 
     // Return a set of all functions that belong to a type.
-    StringSet get_functions(extf_t type) const {
-	StringSet set;
-	
-	for(auto iter = info.begin(); iter != info.end(); ++iter) {
-		extf_t t = iter->second;
+    StringSet
+    get_functions(extf_t type) const
+    {
+        StringSet set;
 
-		if(t == type)
-			set.insert(iter->first());
-	}	
+        for (auto iter = info.begin(); iter != info.end(); ++iter) {
+            extf_t t = iter->second;
 
-	return set;
+            if (t == type)
+                set.insert(iter->first());
+        }
+
+        return set;
     }
 
     //Does (F) have a static var X (unavailable to us) that its return points to?
@@ -147,10 +157,34 @@ public:
     bool has_static2(const llvm::Function *F) const {
         return get_type(F) == EFT_STAT2;
     }
-    //Does (F) allocate a new object?
+    //Does (F) allocate a new object and return it?
     bool is_alloc(const llvm::Function *F) const {
         extf_t t= get_type(F);
-        return t==EFT_ALLOC || t==EFT_KALLOC || t==EFT_NOSTRUCT_ALLOC;
+        return t == EFT_ALLOC || t == EFT_KALLOC || t == EFT_NOSTRUCT_ALLOC;
+    }
+    //Does (F) allocate a new object and assign it to one of its arguments?
+    bool is_arg_alloc(const llvm::Function *F) const {
+        extf_t t= get_type(F);
+        return t>=EFT_A0R_NEW && t<=EFT_A11R_NEW;
+    }
+    //Get the position of argument which holds the new object
+    int get_alloc_arg_pos(const llvm::Function *F) const {
+        extf_t t= get_type(F);
+        switch(t) {
+        case EFT_A0R_NEW:
+            return 0;
+        case EFT_A1R_NEW:
+            return 1;
+        case EFT_A2R_NEW:
+            return 2;
+        case EFT_A4R_NEW:
+            return 4;
+        case EFT_A11R_NEW:
+            return 11;
+        default:
+            assert(!"Not an alloc call via argument.");
+            return -1;
+        }
     }
     //Does (F) allocate only non-struct objects?
     bool no_struct_alloc(const llvm::Function *F) const {
@@ -171,16 +205,25 @@ public:
         extf_t t= get_type(F);
         return t==EFT_REALLOC;
     }
-    //Does (F) not lock any object?
-    bool is_lock(const llvm::Function *F) const {
-        extf_t t= get_type(F);
+
+    // Does (F) not lock any object?
+    bool
+    is_lock(const llvm::Function * F) const
+    {
+        extf_t t = get_type(F);
+
         return t == EFT_KLOCK;
     }
-    //Does (F) not unlock any object?
-    bool is_unlock(const llvm::Function *F) const {
-        extf_t t= get_type(F);
+
+    // Does (F) not unlock any object?
+    bool
+    is_unlock(const llvm::Function * F) const
+    {
+        extf_t t = get_type(F);
+
         return t == EFT_KUNLOCK;
     }
+
     //Should (F) be considered "external" (either not defined in the program
     //  or a user-defined version of a known alloc or no-op)?
     bool is_ext(const llvm::Function *F) {
@@ -195,8 +238,8 @@ public:
             res= 1;
         } else {
             extf_t t= get_type(F);
-            res= t==EFT_ALLOC || t==EFT_KALLOC || t==EFT_REALLOC || t==EFT_NOSTRUCT_ALLOC
-                 || t==EFT_NOOP || t==EFT_FREE || t==EFT_KFREE || t==EFT_KLOCK || t==EFT_KUNLOCK;
+            res = t == EFT_ALLOC || t == EFT_KALLOC || t == EFT_REALLOC || t == EFT_NOSTRUCT_ALLOC ||
+              t == EFT_NOOP || t == EFT_FREE || t == EFT_KFREE || t == EFT_KLOCK || t == EFT_KUNLOCK;
         }
         isext_cache[F]= res;
         return res;

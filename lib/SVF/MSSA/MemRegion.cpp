@@ -2,8 +2,8 @@
 //
 //                     SVF: Static Value-Flow Analysis
 //
-// Copyright (C) <2013-2016>  <Yulei Sui>
-// Copyright (C) <2013-2016>  <Jingling Xue>
+// Copyright (C) <2013-2017>  <Yulei Sui>
+//
 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -30,6 +30,7 @@
 #include "MSSA/MemRegion.h"
 #include "MSSA/MSSAMuChi.h"
 #include "Util/AnalysisUtil.h"
+#include "Util/SVFModule.h"
 
 #include <llvm/Support/raw_ostream.h>	// for output
 #include <llvm/Support/CommandLine.h>	// for cl::opt
@@ -43,14 +44,17 @@ Size_t MRVer::totalVERNum = 0;
 static cl::opt<bool> IgnoreDeadFun("mssa-ignoreDeadFun", cl::init(false),
                                    cl::desc("Don't construct memory SSA for deadfunction"));
 
-void MRGenerator::printPTS(const NodeBS &pts, std::string intro_str) {
-	outs() << intro_str << ": ";
-    for(NodeBS::iterator it = pts.begin(), eit = pts.end(); it!=eit; ++it) { 
-	const MemObj* obj2 = pta->getPAG()->getObject(*it);
-	    outs() << obj2->getRefVal()->getName() << ", ";
+void
+MRGenerator::printPTS(const NodeBS &pts, std::string intro_str)
+{
+    outs() << intro_str << ": ";
+    for (NodeBS::iterator it = pts.begin(), eit = pts.end(); it != eit; ++it) {
+        const MemObj * obj2 = pta->getPAG()->getObject(*it);
+        outs() << obj2->getRefVal()->getName() << ", ";
     }
     outs() << "\n";
 }
+
 
 /*!
  * Clean up memory
@@ -72,8 +76,6 @@ void MRGenerator::destroy() {
  * Generate a memory region and put in into functions which use it
  */
 void MRGenerator::createMR(const Function* fun, const PointsTo& cpts) {
-//	outs() << "CreateMR for F= " << fun->getName() << ":\n";
-//	printPTS(cpts, "cpts");
     const PointsTo& repCPts = getRepPointsTo(cpts);
     MemRegion mr(repCPts);
     MRSet::const_iterator mit = memRegSet.find(&mr);
@@ -88,7 +90,6 @@ void MRGenerator::createMR(const Function* fun, const PointsTo& cpts) {
         memRegSet.insert(m);
         funToMRsMap[fun].insert(m);
     }
-//    outs() << "-----------------------\n";
 }
 
 /*!
@@ -103,12 +104,29 @@ const MemRegion* MRGenerator::getMR(const PointsTo& cpts) const {
 
 
 /*!
+ * Collect globals for escape analysis
+ */
+void MRGenerator::collectGlobals() {
+    PAG* pag = pta->getPAG();
+    for (PAG::iterator nIter = pag->begin(); nIter != pag->end(); ++nIter) {
+        if(ObjPN* obj = dyn_cast<ObjPN>(nIter->second)) {
+            if (obj->getMemObj()->isGlobalObj()) {
+                allGlobals.set(nIter->getFirst());
+                allGlobals |= CollectPtsChain(nIter->getFirst());
+            }
+        }
+    }
+}
+
+/*!
  * Generate memory regions according to pointer analysis results
  * Attach regions on loads/stores
  */
 void MRGenerator::generateMRs() {
 
     DBOUT(DGENERAL, outs() << pasMsg("Generate Memory Regions \n"));
+
+    collectGlobals();
 
     callGraphSCC->find();
 
@@ -134,14 +152,10 @@ void MRGenerator::generateMRs() {
  */
 void MRGenerator::collectModRefForLoadStore() {
 
-    Module *module = pta->getModule();
-
-    for (Module::iterator fi = module->begin(), efi = module->end(); fi != efi;
+    SVFModule svfModule = pta->getModule();
+    for (SVFModule::iterator fi = svfModule.begin(), efi = svfModule.end(); fi != efi;
             ++fi) {
-        const Function& fun = *fi;
-
-//	if(!GraphMinimizer::isRelevantFunction(&fun)) 
-//		continue;
+        const Function& fun = **fi;
 
         /// if this function does not have any caller, then we do not care its MSSA
         if (IgnoreDeadFun && isDeadFunction(&fun))
@@ -190,10 +204,9 @@ void MRGenerator::collectModRefForCall() {
     DBOUT(DGENERAL, outs() << pasMsg("\t\tCollect Callsite PointsTo \n"));
 
     /// collect points-to information for callsites
-    NodeToPTSSMap cachedPtsMap;
     for(PAG::CallSiteSet::const_iterator it =  pta->getPAG()->getCallSiteSet().begin(),
             eit = pta->getPAG()->getCallSiteSet().end(); it!=eit; ++it)
-        collectCallSitePts(*it,cachedPtsMap);
+        collectCallSitePts(*it);
 
     DBOUT(DGENERAL, outs() << pasMsg("\t\tPerform Callsite Mod-Ref \n"));
 
@@ -215,21 +228,16 @@ void MRGenerator::collectModRefForCall() {
 
     for(PAG::CallSiteSet::const_iterator it =  pta->getPAG()->getCallSiteSet().begin(),
             eit = pta->getPAG()->getCallSiteSet().end(); it!=eit; ++it) {
-//    	outs() << "pointsto to CS: ";
-//	(*it)->dump();
         if(hasRefSideEffectOfCallSite(*it)) {
             NodeBS refs = getRefSideEffectOfCallSite(*it);
             PointsTo rcpts(refs);
-//	    printPTS(rcpts, "rcpts");
             addCPtsToCallSiteRefs(rcpts,*it);
         }
         if(hasModSideEffectOfCallSite(*it)) {
             NodeBS mods = getModSideEffectOfCallSite(*it);
             PointsTo mcpts(mods);
-//	    printPTS(mcpts, "mcpts");
             addCPtsToCallSiteMods(mcpts,*it);
         }
-//    	outs() << "---------------------\n";
     }
 }
 
@@ -316,7 +324,6 @@ void MRGenerator::updateAliasMRs() {
         }
     }
 
-//outs() << "Update MR: ";
     /// update callsites with its aliased regions
     for(CallSiteToPointsToMap::const_iterator it =  callsiteToModPointsToMap.begin(),
             eit = callsiteToModPointsToMap.end(); it!=eit; ++it) {
@@ -324,11 +331,7 @@ void MRGenerator::updateAliasMRs() {
         MRSet aliasMRs;
         const PointsTo& callsiteModCPts = it->second;
         getAliasMemRegions(aliasMRs,callsiteModCPts,fun);
-//	outs() << "\tfun= " << fun->getName() << "\n";
         for(MRSet::iterator ait = aliasMRs.begin(), eait = aliasMRs.end(); ait!=eait; ++ait) {
-//		outs() << "\t";
-//	       	it->first->dump();
-//		outs() << "\tcallsiteToMoMpRsMap: " << (*ait)->dumpStr() << "\n";
             callsiteToModMRsMap[it->first].insert(*ait);
         }
     }
@@ -338,11 +341,7 @@ void MRGenerator::updateAliasMRs() {
         MRSet aliasMRs;
         const PointsTo& callsiteRefCPts = it->second;
         getMRsForCallSiteRef(aliasMRs, callsiteRefCPts, fun);
-//	outs() << "\tfun= " << fun->getName() << "\n";
         for(MRSet::iterator ait = aliasMRs.begin(), eait = aliasMRs.end(); ait!=eait; ++ait) {
-//		outs() << "\t"; 
-//		it->first->dump();
-//		outs() << "\tcallsiteToRefMRsMap: " << (*ait)->dumpStr() << "\n";
             callsiteToRefMRsMap[it->first].insert(*ait);
         }
     }
@@ -373,28 +372,14 @@ void MRGenerator::addModSideEffectOfFunction(const llvm::Function* fun, const No
  * Add indirect uses an memory object in the function
  */
 bool MRGenerator::addRefSideEffectOfCallSite(llvm::CallSite cs, const NodeBS& refs) {
-//	outs() << "addRefSideEffectOfCallSite: ";
-//	cs->dump();
     if(!refs.empty()) {
-        NodeBS refset = refs, refset2, refset3;
-//	printPTS(refset, "refs1");
+        NodeBS refset = refs;
         refset &= getCallSitePts(cs);
-//	printPTS(refset, "refset2");
-//	refset2 = refset;
         getGlobalsAndHeapFromPts(refset,refs);
-//	printPTS(refset, "refset3");
         addRefSideEffectOfFunction(cs.getCaller(),refset);
-//	refset3 = getRefSideEffectOfCallSite(cs);
-//        PointsTo rcpts(refset3);
-//	addCPtsToFunc(rcpts, cs);
-//	printPTS(csToRefsMap[cs], "csToRefsMap");
-//	printPTS(refset, "refset");
-//	outs() << "----------------------\n";
-	return csToRefsMap[cs] |= refset;
-//        return refset3 |= refset;
+        return csToRefsMap[cs] |= refset;
     }
     return false;
-//	outs() << "----------------------\n";
 }
 
 /*!
@@ -402,16 +387,11 @@ bool MRGenerator::addRefSideEffectOfCallSite(llvm::CallSite cs, const NodeBS& re
  */
 bool MRGenerator::addModSideEffectOfCallSite(llvm::CallSite cs, const NodeBS& mods) {
     if(!mods.empty()) {
-        NodeBS modset = mods, modset2, modset3;
+        NodeBS modset = mods;
         modset &= getCallSitePts(cs);
-//	modset2 = modset;
         getGlobalsAndHeapFromPts(modset,mods);
         addModSideEffectOfFunction(cs.getCaller(),modset);
-//	modset3 = getModSideEffectOfCallSite(cs);
-//        PointsTo mcpts(modset3);
-//	addCPtsToFunc(mcpts, cs);
         return csToModsMap[cs] |= modset;
-//	return modset3 |= modset;
     }
     return false;
 }
@@ -433,19 +413,15 @@ void MRGenerator::getCallGraphSCCRevTopoOrder(WorkList& worklist) {
 /*!
  * Get all objects might pass into callee from a callsite
  */
-void MRGenerator::collectCallSitePts(CallSite cs,NodeToPTSSMap& cachedPtsMap) {
-//	outs() << "collectCallSitePts of cs ";
-//	cs->dump();
+void MRGenerator::collectCallSitePts(CallSite cs) {
     NodeBS& pts = csToCallPtsMap[cs];
     WorkList worklist;
     if (pta->getPAG()->hasCallSiteArgsMap(cs)) {
         const PAG::PAGNodeList& args = pta->getPAG()->getCallSiteArgsList(cs);
         for(PAG::PAGNodeList::const_iterator itA = args.begin(), ieA = args.end(); itA!=ieA; ++itA) {
             const PAGNode* node = *itA;
-            if(node->isPointer()) {
-//		outs() << "Arg: PAGNode= " << node->getId() << "\n";
+            if(node->isPointer())
                 worklist.push(node->getId());
-	    }
         }
     }
 
@@ -453,24 +429,21 @@ void MRGenerator::collectCallSitePts(CallSite cs,NodeToPTSSMap& cachedPtsMap) {
         NodeID nodeId = worklist.pop();
         PointsTo& tmp = pta->getPts(nodeId);
         for(PointsTo::iterator it = tmp.begin(), eit = tmp.end(); it!=eit; ++it) {
-            pts |= CollectPtsChain(*it,cachedPtsMap);
+            pts |= CollectPtsChain(*it);
         }
     }
-
-//    printPTS(pts, "pts");
-//    outs() << "--------------------------\n";
 }
 
 /*!
  * Recurisively collect all points-to of the whole struct fields
  */
-NodeBS& MRGenerator::CollectPtsChain(NodeID id, NodeToPTSSMap& cachedPtsMap) {
+NodeBS& MRGenerator::CollectPtsChain(NodeID id) {
     NodeID baseId = pta->getPAG()->getBaseObjNode(id);
-    NodeToPTSSMap::iterator it = cachedPtsMap.find(baseId);
-    if(it!=cachedPtsMap.end())
+    NodeToPTSSMap::iterator it = cachedPtsChainMap.find(baseId);
+    if(it!=cachedPtsChainMap.end())
         return it->second;
     else {
-        PointsTo& pts = cachedPtsMap[baseId];
+        PointsTo& pts = cachedPtsChainMap[baseId];
         pts |= pta->getPAG()->getFieldsAfterCollapse(baseId);
 
         WorkList worklist;
@@ -481,7 +454,7 @@ NodeBS& MRGenerator::CollectPtsChain(NodeID id, NodeToPTSSMap& cachedPtsMap) {
             NodeID nodeId = worklist.pop();
             PointsTo& tmp = pta->getPts(nodeId);
             for(PointsTo::iterator it = tmp.begin(), eit = tmp.end(); it!=eit; ++it) {
-                pts |= CollectPtsChain(*it,cachedPtsMap);
+                pts |= CollectPtsChain(*it);
             }
         }
         return pts;
@@ -492,11 +465,12 @@ NodeBS& MRGenerator::CollectPtsChain(NodeID id, NodeToPTSSMap& cachedPtsMap) {
 /*!
  * Get all global objects from a points-to set
  */
+
 void MRGenerator::getGlobalsAndHeapFromPts(NodeBS& globs, const NodeBS& pts) {
     for(NodeBS::iterator it = pts.begin(), eit = pts.end(); it!=eit; ++it) {
         const MemObj* obj = pta->getPAG()->getObject(*it);
         assert(obj && "object not found!!");
-        if(obj->isGlobalObj() || obj->isHeap())
+        if(allGlobals.test(*it) || obj->isHeap())
             globs.set(*it);
     }
 }
@@ -532,37 +506,27 @@ bool MRGenerator::isNonLocalObject(NodeID id, const Function* curFun) const {
  * Compute mod-ref of all callsites invoking this call graph node
  */
 void MRGenerator::modRefAnalysis(PTACallGraphNode* callGraphNode, WorkList& worklist) {
-	
-//    outs() << "ModRefAnalysis: ";
+
     /// add ref/mod set of callee to its invocation callsites at caller
     for(PTACallGraphNode::iterator it = callGraphNode->InEdgeBegin(), eit = callGraphNode->InEdgeEnd();
             it!=eit; ++it) {
         PTACallGraphEdge* edge = *it;
 
-//    	outs() << "Direct:\n";
         /// handle direct callsites
         for(PTACallGraphEdge::CallInstSet::iterator cit = edge->getDirectCalls().begin(),
                 ecit = edge->getDirectCalls().end(); cit!=ecit; ++cit) {
-		// TODO has to be cxt dependent.
             NodeBS mod = getModSideEffectOfFunction(callGraphNode->getFunction());
             NodeBS ref = getRefSideEffectOfFunction(callGraphNode->getFunction());
             /// ref set include all mods
             ref |= mod;
             CallSite cs = analysisUtil::getLLVMCallSite(*cit);
-//	    outs() << "Callsite= " << cs->getName() << "\n"; 
-//	    cs->dump();
-//	    printPTS(mod, "mod");
-//	    printPTS(ref, "ref");
             // add ref set
             bool refchanged = addRefSideEffectOfCallSite(cs, ref);
-//	    outs() << "refchanged= " << refchanged << "\n";
             // add mod set
             bool modchanged = addModSideEffectOfCallSite(cs, mod);
-//	    outs() << "modchanged= " << modchanged << "\n";
             if(refchanged || modchanged)
                 worklist.push(edge->getSrcID());
         }
-//    	outs() << "Indirect:\n";
         /// handle indirect callsites
         for(PTACallGraphEdge::CallInstSet::iterator cit = edge->getIndirectCalls().begin(),
                 ecit = edge->getIndirectCalls().end(); cit!=ecit; ++cit) {
@@ -571,20 +535,12 @@ void MRGenerator::modRefAnalysis(PTACallGraphNode* callGraphNode, WorkList& work
             /// ref set include all mods
             ref |= mod;
             CallSite cs = analysisUtil::getLLVMCallSite(*cit);
-//	    outs() << "Callsite= " << cs->getName() << "\n";
-//	    cs->dump();
-//	    printPTS(mod, "mod");
-//	    printPTS(ref, "ref");
             // add ref set
             bool refchanged = addRefSideEffectOfCallSite(cs, ref);
-//	    outs() << "refchanged= " << refchanged << "\n";
             // add mod set
             bool modchanged = addModSideEffectOfCallSite(cs, mod);
-//	    outs() << "modchanged= " << modchanged << "\n";
             if(refchanged || modchanged)
                 worklist.push(edge->getSrcID());
         }
     }
-//    outs() << "\n---------------------------\n";
 }
-

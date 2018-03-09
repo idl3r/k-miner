@@ -2,8 +2,8 @@
 //
 //                     SVF: Static Value-Flow Analysis
 //
-// Copyright (C) <2013-2016>  <Yulei Sui>
-// Copyright (C) <2013-2016>  <Jingling Xue>
+// Copyright (C) <2013-2017>  <Yulei Sui>
+//
 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -105,22 +105,16 @@ public:
     /// Union/add points-to, used internally
     //@{
     inline bool addPts(const Key &dstKey, const Key& srcKey) {
-         bool res = false;
         addSingleRevPts(getRevPts(srcKey),dstKey);
-        res = addPts(getPts(dstKey),srcKey);
-        return res; 
+        return addPts(getPts(dstKey),srcKey);
     }
     inline bool unionPts(const Key& dstKey, const Key& srcKey) {
-         bool res = false;
         addRevPts(getPts(srcKey),dstKey);
-        res = unionPts(getPts(dstKey),getPts(srcKey));
-        return res; 
+        return unionPts(getPts(dstKey),getPts(srcKey));
     }
     inline bool unionPts(const Key& dstKey, const Data& srcData) {
-         bool res = false;
         addRevPts(srcData,dstKey);
-        res = unionPts(getPts(dstKey),srcData);
-         return res;
+        return unionPts(getPts(dstKey),srcData);
     }
 
 protected:
@@ -131,16 +125,10 @@ private:
     /// Union/add points-to
     //@{
     inline bool unionPts(Data& dstData, const Data& srcData) {
-            bool res;
-//#pragma omp critical (unionPts)
-            res = dstData |= srcData;
-        return res;
+        return dstData |= srcData;
     }
     inline bool addPts(Data &d, const Key& e) {
-            bool res;
-//#pragma omp critical (addPts)
-            res = d.test_and_set(e);
-        return res; 
+        return d.test_and_set(e);
     }
     inline void addSingleRevPts(Data &revData, const Key& tgr) {
         addPts(revData,tgr);

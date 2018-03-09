@@ -2,8 +2,8 @@
 //
 //                     SVF: Static Value-Flow Analysis
 //
-// Copyright (C) <2013-2016>  <Yulei Sui>
-// Copyright (C) <2013-2016>  <Jingling Xue>
+// Copyright (C) <2013-2017>  <Yulei Sui>
+//
 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -38,6 +38,8 @@
 #include <llvm/Support/Debug.h>		// DEBUG TYPE
 #include <omp.h>
 
+class PTAType;
+class SVFModule;
 /*!
  * Inclusion-based Pointer Analysis
  */
@@ -85,62 +87,15 @@ public:
             delete consCG;
         consCG = NULL;
     }
-    /// We start from here
-    virtual bool runOnModule(llvm::Module& module);
 
     /// Andersen analysis
-    virtual inline void analyze(llvm::Module& module) {
-        /// Initialization for the Solver
-        initialize(module);
-
-        DBOUT(DGENERAL, llvm::outs() << analysisUtil::pasMsg("Start Solving Constraints\n"));
-
-        processAllAddr();
-//	omp_set_num_threads(1);
-
-//#pragma omp parallel
-        do {
-//#pragma omp single
-//		{
-            numOfIteration++;
-
-//            if(0 == numOfIteration % OnTheFlyIterBudgetForStat) {
-//                dumpStat();
-//            }
-
-            reanalyze = false;
-//		}
-
-            /// Start solving constraints
-            solve();
-//#pragma omp barrier 
-
-//#pragma omp single 
-//	    {
-            double cgUpdateStart = stat->getClk();
-            if (updateCallGraph(getIndirectCallsites()))
-                reanalyze = true;
-            double cgUpdateEnd = stat->getClk();
-            timeOfUpdateCallGraph += (cgUpdateEnd - cgUpdateStart) / TIMEINTERVAL;
-//	    }
-
-	    if(!reanalyze)
-		    break;
-//#pragma omp barrier 
-	}while (true);
-//        } while (reanalyze);
-	
-        DBOUT(DGENERAL, llvm::outs() << analysisUtil::pasMsg("Finish Solving Constraints\n"));
-
-        /// finalize the analysis
-        finalize();
-    }
+    void analyze(SVFModule svfModule);
 
     /// Initialize analysis
-    virtual inline void initialize(llvm::Module& module) {
+    virtual inline void initialize(SVFModule svfModule) {
         resetData();
         /// Build PAG
-        PointerAnalysis::initialize(module);
+        PointerAnalysis::initialize(svfModule);
         /// Build Constraint Graph
         consCG = new ConstraintGraph(pag);
         setGraph(consCG);
@@ -149,11 +104,12 @@ public:
 
     }
 
+    //}
+
     /// Finalize analysis
     virtual inline void finalize() {
         /// dump constraint graph if PAGDotGraph flag is enabled
-        if(dumpGraph())
-            consCG->dump();
+        consCG->dump();
         /// sanitize field insensitive obj
         /// TODO: Fields has been collapsed during Andersen::collapseField().
         //	sanitizePts();
@@ -178,7 +134,8 @@ public:
         return (pta->getAnalysisTy() == Andersen_WPA
                 || pta->getAnalysisTy() == AndersenLCD_WPA
                 || pta->getAnalysisTy() == AndersenWave_WPA
-                || pta->getAnalysisTy() == AndersenWaveDiff_WPA);
+                || pta->getAnalysisTy() == AndersenWaveDiff_WPA
+                || pta->getAnalysisTy() == AndersenWaveDiffWithType_WPA);
     }
     //@}
 
@@ -228,10 +185,7 @@ protected:
 
     /// Add copy edge on constraint graph
     virtual inline bool addCopyEdge(NodeID src, NodeID dst) {
-	    bool res = false;
-//#pragma omp critical (addCopyEdge)
-        res =  consCG->addCopyCGEdge(src, dst);
-	return res;
+        return consCG->addCopyCGEdge(src, dst);
     }
 
     /// Update call graph for the input indirect callsites
@@ -279,6 +233,15 @@ protected:
     virtual const std::string PTAName() const {
         return "AndersenWPA";
     }
+
+    /// match types for Gep Edges
+    virtual bool matchType(NodeID ptrid, NodeID objid, const NormalGepCGEdge *normalGepEdge) {
+        return true;
+    }
+    /// add type for newly created GepObjNode
+    virtual void addTypeForGepObjNode(NodeID id, const NormalGepCGEdge* normalGepEdge) {
+        return;
+    }
 };
 
 /*
@@ -293,10 +256,10 @@ public:
     AndersenWave(PTATY type = AndersenWave_WPA) : Andersen(type) {}
 
     /// Create an singleton instance directly instead of invoking llvm pass manager
-    static AndersenWave* createAndersenWave(llvm::Module& module) {
+    static AndersenWave* createAndersenWave(SVFModule svfModule) {
         if(waveAndersen==NULL) {
             waveAndersen = new AndersenWave();
-            waveAndersen->analyze(module);
+            waveAndersen->analyze(svfModule);
             return waveAndersen;
         }
         return waveAndersen;
@@ -336,7 +299,6 @@ private:
     //@{
     virtual inline void computeDiffPts(NodeID id) {
         NodeID rep = sccRepNode(id);
-//#pragma omp critical (computeDiffPts)
         getDiffPTDataTy()->computeDiffPts(rep, getDiffPTDataTy()->getPts(rep));
     }
     virtual inline PointsTo& getDiffPts(NodeID id) {
@@ -362,10 +324,10 @@ public:
     AndersenWaveDiff(PTATY type = AndersenWaveDiff_WPA): AndersenWave(type) {}
 
     /// Create an singleton instance directly instead of invoking llvm pass manager
-    static AndersenWaveDiff* createAndersenWaveDiff(llvm::Module& module) {
+    static AndersenWaveDiff* createAndersenWaveDiff(SVFModule svfModule) {
         if(diffWave==NULL) {
             diffWave = new AndersenWaveDiff();
-            diffWave->analyze(module);
+            diffWave->analyze(svfModule);
             return diffWave;
         }
         return diffWave;
@@ -398,6 +360,85 @@ protected:
         else
             return false;
     }
+
+    /// process "bitcast" CopyCGEdge
+    virtual void processCast(const ConstraintEdge *edge) {
+        return;
+    }
+};
+
+
+
+/**
+ * Wave propagation with diff points-to set with type filter.
+ */
+class AndersenWaveDiffWithType : public AndersenWaveDiff {
+
+private:
+
+    typedef std::map<NodeID, std::set<const GepCGEdge*>> TypeMismatchedObjToEdgeTy;
+
+    TypeMismatchedObjToEdgeTy typeMismatchedObjToEdges;
+
+    void recordTypeMismatchedGep(NodeID obj, const GepCGEdge* gepEdge) {
+        TypeMismatchedObjToEdgeTy::iterator it = typeMismatchedObjToEdges.find(obj);
+        if (it != typeMismatchedObjToEdges.end()) {
+            std::set<const GepCGEdge*> &edges = it->second;
+            edges.insert(gepEdge);
+        } else {
+            std::set<const GepCGEdge*> edges;
+            edges.insert(gepEdge);
+            typeMismatchedObjToEdges[obj] = edges;
+        }
+    }
+
+    static AndersenWaveDiffWithType* diffWaveWithType; // static instance
+
+    /// Handle diff points-to set.
+    //@{
+    virtual inline void computeDiffPts(NodeID id) {
+        NodeID rep = sccRepNode(id);
+        getDiffPTDataTy()->computeDiffPts(rep, getDiffPTDataTy()->getPts(rep));
+    }
+    virtual inline PointsTo& getDiffPts(NodeID id) {
+        NodeID rep = sccRepNode(id);
+        return getDiffPTDataTy()->getDiffPts(rep);
+    }
+    //@}
+
+public:
+    AndersenWaveDiffWithType(PTATY type = AndersenWaveDiffWithType_WPA): AndersenWaveDiff(type) {}
+
+    /// Create an singleton instance directly instead of invoking llvm pass manager
+    static AndersenWaveDiffWithType* createAndersenWaveDiffWithType(SVFModule svfModule) {
+        if(diffWaveWithType==NULL) {
+            diffWaveWithType = new AndersenWaveDiffWithType();
+            diffWaveWithType->analyze(svfModule);
+            return diffWaveWithType;
+        }
+        return diffWaveWithType;
+    }
+    static void releaseAndersenWaveDiffWithType() {
+        if (diffWaveWithType)
+            delete diffWaveWithType;
+        diffWaveWithType = NULL;
+    }
+
+protected:
+    /// SCC detection
+    virtual NodeStack& SCCDetect();
+    /// merge types of nodes in a cycle
+    void mergeTypeOfNodes(const NodeBS &nodes);
+    /// process "bitcast" CopyCGEdge
+    virtual void processCast(const ConstraintEdge *edge);
+    /// update type of objects when process "bitcast" CopyCGEdge
+    void updateObjType(const llvm::Type *type, PointsTo &objs);
+    /// process mismatched gep edges
+    void processTypeMismatchedGep(NodeID obj, const llvm::Type *type);
+    /// match types for Gep Edges
+    virtual bool matchType(NodeID ptrid, NodeID objid, const NormalGepCGEdge *normalGepEdge);
+    /// add type for newly created GepObjNode
+    virtual void addTypeForGepObjNode(NodeID id, const NormalGepCGEdge* normalGepEdge);
 };
 
 
@@ -416,10 +457,10 @@ public:
     AndersenLCD(PTATY type = AndersenLCD_WPA): Andersen(type) {}
 
     /// Create an singleton instance directly instead of invoking llvm pass manager
-    static AndersenLCD* createAndersenWave(llvm::Module& module) {
+    static AndersenLCD* createAndersenWave(SVFModule svfModule) {
         if(lcdAndersen==NULL) {
             lcdAndersen = new AndersenLCD();
-            lcdAndersen->analyze(module);
+            lcdAndersen->analyze(svfModule);
             return lcdAndersen;
         }
         return lcdAndersen;

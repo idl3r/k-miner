@@ -2,8 +2,8 @@
 //
 //                     SVF: Static Value-Flow Analysis
 //
-// Copyright (C) <2013-2016>  <Yulei Sui>
-// Copyright (C) <2013-2016>  <Jingling Xue>
+// Copyright (C) <2013-2017>  <Yulei Sui>
+//
 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -45,7 +45,7 @@ public:
     PTASCEV():scev(NULL), start(NULL), step(NULL),ptr(NULL),inloop(false),tripcount(0) {}
 
     /// Constructor
-    PTASCEV(const llvm::Value* p, const llvm::SCEV* s, llvm::ScalarEvolution* SE): scev(s),start(NULL), step(NULL), ptr(p) {
+    PTASCEV(const llvm::Value* p, const llvm::SCEV* s, llvm::ScalarEvolution* SE): scev(s),start(NULL), step(NULL), ptr(p), inloop(false), tripcount(0) {
         if(const llvm::SCEVAddRecExpr* ar = llvm::dyn_cast<llvm::SCEVAddRecExpr>(s)) {
             if (const llvm::SCEVConstant *startExpr = llvm::dyn_cast<llvm::SCEVConstant>(ar->getStart()))
                 start = startExpr->getValue();
@@ -174,10 +174,11 @@ public:
         llvm::Function* fun = const_cast<llvm::Function*>(f);
         FunToPostDTMap::iterator it = funToPDTMap.find(fun);
         if(it==funToPDTMap.end()) {
-            llvm::PostDominatorTree* postDT = new llvm::PostDominatorTree();
+            llvm::PostDominatorTreeWrapperPass* postDT = new llvm::PostDominatorTreeWrapperPass();
             postDT->runOnFunction(*fun);
-            funToPDTMap[fun] = postDT;
-            return postDT;
+            llvm::PostDominatorTree * PDT = &(postDT->getPostDomTree());
+            funToPDTMap[fun] = PDT;
+            return PDT;
         }
         else
             return it->second;
@@ -206,7 +207,7 @@ private:
 /*!
  * Iterated dominance frontier
  */
-class IteratedDominanceFrontier: public llvm::DominanceFrontierBase<llvm::BasicBlock> {
+class IteratedDominanceFrontier: public llvm::DominanceFrontierBase<llvm::BasicBlock, false> {
 
 private:
     const llvm::DominanceFrontier *DF;
@@ -217,7 +218,7 @@ public:
     static char ID;
 
     IteratedDominanceFrontier() :
-        llvm::DominanceFrontierBase<llvm::BasicBlock>(false), DF(NULL) {
+        llvm::DominanceFrontierBase<llvm::BasicBlock, false>(/*false*/), DF(NULL) {
     }
 
     virtual ~IteratedDominanceFrontier() {
@@ -225,7 +226,7 @@ public:
 
     virtual void getAnalysisUsage(llvm::AnalysisUsage &AU) const {
         AU.setPreservesAll();
-        AU.addRequired<llvm::DominanceFrontier>();
+        // AU.addRequired<llvm::DominanceFrontier>();
     }
 
 //	virtual bool runOnFunction(llvm::Function &m) {

@@ -3,7 +3,7 @@
 //                          The SAFECode Compiler
 //
 // This file was developed by the LLVM research group and is distributed under
-// GPLv3 Open Source License. See LICENSE.TXT for details.
+// the University of Illinois Open Source License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
 //
@@ -36,7 +36,7 @@ private:
 public:
     static char ID;
     BreakConstantGEPs() : ModulePass(ID) {}
-    const char *getPassName() const {
+    llvm::StringRef getPassName() const {
         return "Remove Constant GEP Expressions";
     }
     virtual bool runOnModule (llvm::Module & M);
@@ -62,7 +62,7 @@ private:
 public:
     static char ID;
     MergeFunctionRets() : ModulePass(ID) {}
-    const char *getPassName() const {
+    llvm::StringRef getPassName() const {
         return "unify function exit into one dummy exit basic block";
     }
     virtual bool runOnModule (llvm::Module & M) {

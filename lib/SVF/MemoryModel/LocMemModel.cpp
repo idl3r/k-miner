@@ -2,8 +2,8 @@
 //
 //                     SVF: Static Value-Flow Analysis
 //
-// Copyright (C) <2013-2016>  <Yulei Sui>
-// Copyright (C) <2013-2016>  <Jingling Xue>
+// Copyright (C) <2013-2017>  <Yulei Sui>
+//
 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -32,6 +32,7 @@
 #include "Util/AnalysisUtil.h"
 
 #include <llvm/IR/GetElementPtrTypeIterator.h>	//for gep iterator
+#include "Util/GEPTypeBridgeIterator.h" // include bridge_gep_iterator 
 #include <vector>
 
 using namespace llvm;
@@ -47,14 +48,14 @@ bool LocSymTableInfo::computeGepOffset(const llvm::User *V, LocationSet& ls) {
     assert(V);
     int baseIndex = -1;
     int index = 0;
-    for (gep_type_iterator gi = gep_type_begin(*V), ge = gep_type_end(*V);
+    for (bridge_gep_iterator gi = bridge_gep_begin(*V), ge = bridge_gep_end(*V);
             gi != ge; ++gi, ++index) {
         if(llvm::isa<ConstantInt>(gi.getOperand()) == false)
             baseIndex = index;
     }
 
     index = 0;
-    for (gep_type_iterator gi = gep_type_begin(*V), ge = gep_type_end(*V);
+    for (bridge_gep_iterator gi = bridge_gep_begin(*V), ge = bridge_gep_end(*V);
             gi != ge; ++gi, ++index) {
 
         if (index <= baseIndex) {
@@ -170,7 +171,7 @@ void LocSymTableInfo::collectStructInfo(const StructType *ty) {
     StInfo *stinfo = new StInfo();
     typeToFieldInfo[ty] = stinfo;
 
-    const StructLayout *stTySL = getDataLayout()->getStructLayout( const_cast<StructType *>(ty) );
+    const StructLayout *stTySL = getDataLayout(getModule().getMainLLVMModule())->getStructLayout( const_cast<StructType *>(ty) );
 
     u32_t field_idx = 0;
     for (StructType::element_iterator it = ty->element_begin(), ie =
@@ -307,5 +308,5 @@ void LocSymTableInfo::verifyStructSize(StInfo *stinfo, u32_t structSize) {
 u32_t LocObjTypeInfo::getObjSize(const Value* val) {
 
     Type* ety  = cast<PointerType>(val->getType())->getElementType();
-    return LocSymTableInfo::getTypeSizeInBytes(ety);
+    return LocSymTableInfo::Symbolnfo()->getTypeSizeInBytes(ety);
 }

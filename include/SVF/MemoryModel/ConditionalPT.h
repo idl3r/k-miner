@@ -2,8 +2,8 @@
 //
 //                     SVF: Static Value-Flow Analysis
 //
-// Copyright (C) <2013-2016>  <Yulei Sui>
-// Copyright (C) <2013-2016>  <Jingling Xue>
+// Copyright (C) <2013-2017>  <Yulei Sui>
+//
 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -55,7 +55,6 @@ public:
 
     ~CondVar() {}
 
-
     /**
      * Comparison between two elements.
      */
@@ -103,6 +102,10 @@ public:
         return rawstr.str();
     }
 
+    friend llvm::raw_ostream& operator<< (llvm::raw_ostream &o, const CondVar<Cond> &cvar) {
+        o << cvar.toString();
+        return o;
+    }
 private:
     Cond	m_cond;
     NodeID	m_id;

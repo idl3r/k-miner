@@ -2,8 +2,8 @@
 //
 //                     SVF: Static Value-Flow Analysis
 //
-// Copyright (C) <2013-2016>  <Yulei Sui>
-// Copyright (C) <2013-2016>  <Jingling Xue>
+// Copyright (C) <2013-2017>  <Yulei Sui>
+//
 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -44,230 +44,237 @@ typedef CFLSolver<SVFG*,CxtDPItem> CFLSrcSnkSolver;
  */
 class SrcSnkDDA : public CFLSrcSnkSolver {
 
-	public:
-		typedef ProgSlice::SVFGNodeSet SVFGNodeSet;
-		typedef std::map<const SVFGNode*,ProgSlice*> SVFGNodeToSliceMap;
-		typedef SVFGNodeSet::iterator SVFGNodeSetIter;
-		typedef CxtDPItem DPIm;
-		typedef std::set<DPIm> DPImSet;	///< dpitem set
-		typedef std::map<const SVFGNode*, DPImSet> SVFGNodeToDPItemsMap; ///< map a SVFGNode to its visited dpitems
+public:
+    typedef ProgSlice::SVFGNodeSet SVFGNodeSet;
+    typedef std::map<const SVFGNode*,ProgSlice*> SVFGNodeToSliceMap;
+    typedef SVFGNodeSet::iterator SVFGNodeSetIter;
+    typedef CxtDPItem DPIm;
+    typedef std::set<DPIm> DPImSet;							///< dpitem set
+    typedef std::map<const SVFGNode*, DPImSet> SVFGNodeToDPItemsMap; 	///< map a SVFGNode to its visited dpitems
 
-	// If possible they should be private
-	protected:
-		ProgSlice* _curSlice;		/// current program slice
-		PTACallGraph* ptaCallGraph;
-		SVFG* svfg;
-		SaberSVFGBuilder memSSA;
-		double analysisDurationTotal;
+protected:
+    ProgSlice* _curSlice;		/// current program slice
+    PTACallGraph * ptaCallGraph;
+    SVFG * svfg;
+    SaberSVFGBuilder memSSA;
+    double analysisDurationTotal;
 
-	private:
-		SVFGNodeSet sources;		/// source nodes
-		SVFGNodeSet sinks;		/// source nodes
-		PathCondAllocator* pathCondAllocator;
-		SVFGNodeToDPItemsMap nodeToDPItemsMap;	///<  record forward visited dpitems
-		SVFGNodeSet visitedSet;	///<  record backward visited nodes
+private:
+    SVFGNodeSet sources;		/// source nodes
+    SVFGNodeSet sinks;		/// source nodes
+    PathCondAllocator* pathCondAllocator;
+    SVFGNodeToDPItemsMap nodeToDPItemsMap;	///<  record forward visited dpitems
+    SVFGNodeSet visitedSet;	///<  record backward visited nodes
 
-	public:
-		/// Constructor
-		SrcSnkDDA() : _curSlice(NULL), svfg(NULL), ptaCallGraph(NULL) {
-			pathCondAllocator = new PathCondAllocator();
-		}
-		/// Destructor
-		virtual ~SrcSnkDDA() {
-			if (svfg != NULL)
-				delete svfg;
-			svfg = NULL;
+public:
 
-			if (ptaCallGraph != NULL)
-				delete ptaCallGraph;
-			ptaCallGraph = NULL;
+    /// Constructor
+    SrcSnkDDA() : _curSlice(NULL), svfg(NULL), ptaCallGraph(NULL) {
+        pathCondAllocator = new PathCondAllocator();
+    }
+    /// Destructor
+    virtual ~SrcSnkDDA() {
+        if (svfg != NULL)
+            delete svfg;
+        svfg = NULL;
 
-			if(pathCondAllocator)
-				delete pathCondAllocator;
-			pathCondAllocator = NULL;
+        if (ptaCallGraph != NULL)
+            delete ptaCallGraph;
+        ptaCallGraph = NULL;
 
-			AndersenWaveDiff::releaseAndersenWaveDiff();
-		}
+        //if(pathCondAllocator)
+        //    delete pathCondAllocator;
+        //pathCondAllocator = NULL;
 
-		/// Start analysis here
-		virtual void analyze(llvm::Module& module);
+        AndersenWaveDiff::releaseAndersenWaveDiff();
+    }
 
-		/// Initialize analysis
-		virtual void initialize(llvm::Module& module) {
-			ptaCallGraph = new PTACallGraph(&module);
-			AndersenWaveDiff* ander = AndersenWaveDiff::createAndersenWaveDiff(module);
-			svfg = new SVFGOPT(ptaCallGraph);
-			memSSA.build(svfg,ander);
-			setGraph(memSSA.getSVFG());
-//			AndersenWaveDiff::releaseAndersenWaveDiff();
-			/// allocate control-flow graph branch conditions
-			getPathAllocator()->allocate(module);
+    /// Start analysis here
+    virtual void analyze(SVFModule module);
 
-			initSrcs();
-			initSnks();
-		}
+    /// Initialize analysis
+    virtual void initialize(SVFModule module) {
+        ptaCallGraph = new PTACallGraph(module);
+        AndersenWaveDiff* ander = AndersenWaveDiff::createAndersenWaveDiff(module);
+        svfg =  memSSA.buildSVFG(ander);
+        setGraph(memSSA.getSVFG());
+        //AndersenWaveDiff::releaseAndersenWaveDiff();
+        /// allocate control-flow graph branch conditions
+        getPathAllocator()->allocate(module);
 
-		/// Finalize analysis
-		virtual void finalize() {
-			dumpSlices();
-		}
+        initSrcs();
+        initSnks();
+    }
 
-		/// Get SVFG
-		inline const SVFG* getSVFG() const {
-			return graph();
-		}
+    /// Finalize analysis
+    virtual void finalize() {
+        dumpSlices();
+    }
 
-		/// Whether this svfg node may access global variable
-		inline bool isGlobalSVFGNode(const SVFGNode* node) const {
-			return memSSA.isGlobalSVFGNode(node);
-		}
-		/// Slice operations
-		//@{
-		void setCurSlice(const SVFGNode* src);
+    /// Get SVFG
+    inline const SVFG* getSVFG() const {
+        return graph();
+    }
 
-		inline ProgSlice* getCurSlice() const {
-			return _curSlice;
-		}
-		inline void addSinkToCurSlice(const SVFGNode* node) {
-			_curSlice->addToSinks(node);
-			addToCurForwardSlice(node);
-		}
-		inline bool isInCurForwardSlice(const SVFGNode* node) {
-			return _curSlice->inForwardSlice(node);
-		}
-		inline bool isInCurBackwardSlice(const SVFGNode* node) {
-			return _curSlice->inBackwardSlice(node);
-		}
-		inline void addToCurForwardSlice(const SVFGNode* node) {
-			_curSlice->addToForwardSlice(node);
-		}
-		inline void addToCurBackwardSlice(const SVFGNode* node) {
-			_curSlice->addToBackwardSlice(node);
-		}
-		//@}
+    /// Whether this svfg node may access global variable
+    inline bool isGlobalSVFGNode(const SVFGNode* node) const {
+        return memSSA.isGlobalSVFGNode(node);
+    }
+    /// Slice operations
+    //@{
+    void setCurSlice(const SVFGNode* src);
 
-		/// Initialize sources and sinks
-		///@{
-		virtual void initSrcs() = 0;
-		virtual void initSnks() = 0;
-		virtual bool isSourceLikeFun(const llvm::Function* fun) = 0;
-		virtual bool isSinkLikeFun(const llvm::Function* fun) = 0;
-		virtual bool isSouce(const SVFGNode* node) = 0;
-		virtual bool isSink(const SVFGNode* node) = 0;
-		///@}
+    inline ProgSlice* getCurSlice() const {
+        return _curSlice;
+    }
+    inline void addSinkToCurSlice(const SVFGNode* node) {
+        _curSlice->addToSinks(node);
+        addToCurForwardSlice(node);
+    }
+    inline bool isInCurForwardSlice(const SVFGNode* node) {
+        return _curSlice->inForwardSlice(node);
+    }
+    inline bool isInCurBackwardSlice(const SVFGNode* node) {
+        return _curSlice->inBackwardSlice(node);
+    }
+    inline void addToCurForwardSlice(const SVFGNode* node) {
+        _curSlice->addToForwardSlice(node);
+    }
+    inline void addToCurBackwardSlice(const SVFGNode* node) {
+        _curSlice->addToBackwardSlice(node);
+    }
+    //@}
 
-		/// report bug on the current analyzed slice
-		virtual void reportBug(ProgSlice* slice) = 0;
+    /// Initialize sources and sinks
+    ///@{
+    virtual void initSrcs() = 0;
+    virtual void initSnks() = 0;
+    virtual bool isSourceLikeFun(const llvm::Function* fun) = 0;
+    virtual bool isSinkLikeFun(const llvm::Function* fun) = 0;
+    virtual bool isSource(const SVFGNode* node) = 0;
+    virtual bool isSink(const SVFGNode* node) = 0;
+    ///@}
 
-		/// Get sources/sinks
-		//@{
-		inline const SVFGNodeSet& getSources() const {
-			return sources;
-		}
-		inline void setSources(SVFGNodeSet& sources) {
-			this->sources = sources;	
-		}
-		inline SVFGNodeSetIter sourcesBegin() const {
-			return sources.begin();
-		}
-		inline SVFGNodeSetIter sourcesEnd() const {
-			return sources.end();
-		}
-		inline void addToSources(const SVFGNode* node) {
-			sources.insert(node);
-		}
-		inline const SVFGNodeSet& getSinks() const {
-			return sinks;
-		}
-		inline void setSinks(SVFGNodeSet& sinks) {
-			this->sinks = sinks;	
-		}
-		inline SVFGNodeSetIter sinksBegin() const {
-			return sinks.begin();
-		}
-		inline SVFGNodeSetIter sinksEnd() const {
-			return sinks.end();
-		}
-		inline void addToSinks(const SVFGNode* node) {
-			sinks.insert(node);
-		}
-		//@}
+    /// report bug on the current analyzed slice
+    virtual void reportBug(ProgSlice* slice) = 0;
 
-		/// Get path condition allocator
-		PathCondAllocator* getPathAllocator() const {
-			return pathCondAllocator;
-		}
+    /// Get sources/sinks
+    //@{
+    inline const SVFGNodeSet& getSources() const {
+        return sources;
+    }
 
-	protected:
-		/// Forward traverse
-		virtual inline void forwardProcess(const DPIm& item) {
-			const SVFGNode* node = getNode(item.getCurNodeID());
-			if(isSink(node)) {
-				addSinkToCurSlice(node);
-				_curSlice->setPartialReachable();
-			}
-			else
-				addToCurForwardSlice(node);
-		}
-		/// Backward traverse
-		virtual inline void backwardProcess(const DPIm& item) {
-			const SVFGNode* node = getNode(item.getCurNodeID());
-			if(isInCurForwardSlice(node)) {
-				addToCurBackwardSlice(node);
-			}
-		}
-		/// Propagate information forward by matching context
-		virtual void forwardpropagate(const DPIm& item, SVFGEdge* edge);
-		/// Propagate information backward without matching context, as forward analysis already did it
-		virtual void backwardpropagate(const DPIm& item, SVFGEdge* edge);
-		/// Whether has been visited or not, in order to avoid recursion on SVFG
-		//@{
-		inline bool forwardVisited(const SVFGNode* node, const DPIm& item) {
-			SVFGNodeToDPItemsMap::iterator it = nodeToDPItemsMap.find(node);
-			if(it!=nodeToDPItemsMap.end())
-				return it->second.find(item)!=it->second.end();
-			else
-				return false;
-		}
-		inline void addForwardVisited(const SVFGNode* node, const DPIm& item) {
-			nodeToDPItemsMap[node].insert(item);
-		}
-		inline bool backwardVisited(const SVFGNode* node) {
-			return visitedSet.find(node)!=visitedSet.end();
-		}
-		inline void addBackwardVisited(const SVFGNode* node) {
-			visitedSet.insert(node);
-		}
-		inline void clearVisitedMap() {
-			nodeToDPItemsMap.clear();
-			visitedSet.clear();
-		}
-		//@}
+    inline void
+    setSources(SVFGNodeSet& sources)
+    {
+        this->sources = sources;
+    }
 
-		/// Guarded reachability search
-		//@{
-		virtual void AllPathReachability();
-		inline bool isSatisfiableForAll(ProgSlice* slice) {
-			return slice->isSatisfiableForAll();
-		}
-		inline bool isSatisfiableForPairs(ProgSlice* slice) {
-			return slice->isSatisfiableForPairs();
-		}
-		//@}
-		/// Whether it is all path reachable from a source
-		virtual bool isAllPathReachable() {
-			return _curSlice->isAllReachable();
-		}
-		/// Whether it is some path reachable from a source
-		virtual bool isSomePathReachable() {
-			return _curSlice->isPartialReachable();
-		}
-		/// Dump SVFG with annotated slice informaiton
-		//@{
-		void dumpSlices();
-		void annotateSlice(ProgSlice* slice);
-		void printBDDStat();
-		//@}
+    inline SVFGNodeSetIter sourcesBegin() const {
+        return sources.begin();
+    }
+    inline SVFGNodeSetIter sourcesEnd() const {
+        return sources.end();
+    }
+    inline void addToSources(const SVFGNode* node) {
+        sources.insert(node);
+    }
+    inline const SVFGNodeSet& getSinks() const {
+        return sinks;
+    }
+
+    inline void
+    setSinks(SVFGNodeSet& sinks)
+    {
+        this->sinks = sinks;
+    }
+
+    inline SVFGNodeSetIter sinksBegin() const {
+        return sinks.begin();
+    }
+    inline SVFGNodeSetIter sinksEnd() const {
+        return sinks.end();
+    }
+    inline void addToSinks(const SVFGNode* node) {
+        sinks.insert(node);
+    }
+    //@}
+
+    /// Get path condition allocator
+    PathCondAllocator* getPathAllocator() const {
+        return pathCondAllocator;
+    }
+
+protected:
+    /// Forward traverse
+    virtual inline void forwardProcess(const DPIm& item) {
+        const SVFGNode* node = getNode(item.getCurNodeID());
+        if(isSink(node)) {
+            addSinkToCurSlice(node);
+            _curSlice->setPartialReachable();
+        }
+        else
+            addToCurForwardSlice(node);
+    }
+    /// Backward traverse
+    virtual inline void backwardProcess(const DPIm& item) {
+        const SVFGNode* node = getNode(item.getCurNodeID());
+        if(isInCurForwardSlice(node)) {
+            addToCurBackwardSlice(node);
+        }
+    }
+    /// Propagate information forward by matching context
+    virtual void forwardpropagate(const DPIm& item, SVFGEdge* edge);
+    /// Propagate information backward without matching context, as forward analysis already did it
+    virtual void backwardpropagate(const DPIm& item, SVFGEdge* edge);
+    /// Whether has been visited or not, in order to avoid recursion on SVFG
+    //@{
+    inline bool forwardVisited(const SVFGNode* node, const DPIm& item) {
+        SVFGNodeToDPItemsMap::iterator it = nodeToDPItemsMap.find(node);
+        if(it!=nodeToDPItemsMap.end())
+            return it->second.find(item)!=it->second.end();
+        else
+            return false;
+    }
+    inline void addForwardVisited(const SVFGNode* node, const DPIm& item) {
+        nodeToDPItemsMap[node].insert(item);
+    }
+    inline bool backwardVisited(const SVFGNode* node) {
+        return visitedSet.find(node)!=visitedSet.end();
+    }
+    inline void addBackwardVisited(const SVFGNode* node) {
+        visitedSet.insert(node);
+    }
+    inline void clearVisitedMap() {
+        nodeToDPItemsMap.clear();
+        visitedSet.clear();
+    }
+    //@}
+
+    /// Guarded reachability search
+    //@{
+    virtual void AllPathReachability();
+    inline bool isSatisfiableForAll(ProgSlice* slice) {
+        return slice->isSatisfiableForAll();
+    }
+    inline bool isSatisfiableForPairs(ProgSlice* slice) {
+        return slice->isSatisfiableForPairs();
+    }
+    //@}
+    /// Whether it is all path reachable from a source
+    virtual bool isAllPathReachable() {
+        return _curSlice->isAllReachable();
+    }
+    /// Whether it is some path reachable from a source
+    virtual bool isSomePathReachable() {
+        return _curSlice->isPartialReachable();
+    }
+    /// Dump SVFG with annotated slice informaiton
+    //@{
+    void dumpSlices();
+    void annotateSlice(ProgSlice* slice);
+    void printBDDStat();
+    //@}
 
 };
 
