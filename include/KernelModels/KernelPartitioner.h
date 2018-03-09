@@ -68,8 +68,8 @@ public:
 		return true;
 	}
 
-	virtual const char* getPassName() const {
-		return "Module Partitioner Pass";
+	virtual llvm::StringRef getPassName() const {
+		return llvm::StringRef("Module Partitioner Pass");
 	}
 
 	virtual void getAnalysisUsage(llvm::AnalysisUsage& au) const {

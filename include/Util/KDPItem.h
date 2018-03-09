@@ -492,11 +492,13 @@ protected:
 /**
  * Captures the function path.
  */
-class FuncPathDPItem : public CxtLocDPItem {
+typedef SVFGNode LocCond;
+
+class FuncPathDPItem : public CxtStmtDPItem<LocCond> {
 public:
 	FuncPathDPItem(const CxtVar &var, 
 		       const LocCond* locCond, 
-		       const ContextCond &funcPath): CxtLocDPItem(var, locCond), funcPath(funcPath) { }
+		       const ContextCond &funcPath): CxtStmtDPItem<LocCond>(var, locCond), funcPath(funcPath) { }
 
 	FuncPathDPItem(const FuncPathDPItem &dps) : FuncPathDPItem(dps.getCondVar(), 
 			             		    dps.getLoc(), 
@@ -518,7 +520,7 @@ public:
 
 	inline FuncPathDPItem& operator= (const FuncPathDPItem& rhs) {
 		if(*this!=rhs) {
-			CxtLocDPItem::operator=(rhs);
+			CxtStmtDPItem<LocCond>::operator=(rhs);
 			funcPath = rhs.funcPath;
 		}
 		return *this;
@@ -536,7 +538,6 @@ public:
 protected:
 	ContextCond funcPath;
 };
-
 
 /**
  * A light weight version of the UARDPItem.
@@ -630,12 +631,12 @@ protected:
 /***
  * Item used by the Double-Free Checker.
  */
-class KSrcSnkDPItem : public PathDPItem  {
+class KSrcSnkDPItem : public PathStmtDPItem<LocCond>  {
 public:
-	KSrcSnkDPItem(const VFPathVar& var, const LocCond* locCond) : PathDPItem(var, locCond) {
+	KSrcSnkDPItem(const VFPathVar& var, const LocCond* locCond) : PathStmtDPItem<LocCond>(var, locCond) {
 	}
 
-	KSrcSnkDPItem(const KSrcSnkDPItem& dps) : PathDPItem(dps), fieldCxt(dps.getFieldCxt()) {
+	KSrcSnkDPItem(const KSrcSnkDPItem& dps) : PathStmtDPItem<LocCond>(dps), fieldCxt(dps.getFieldCxt()) {
 	}
 
 	virtual ~KSrcSnkDPItem() {
@@ -697,7 +698,7 @@ public:
 	 */
 	inline bool operator< (const KSrcSnkDPItem& rhs) const {
 		if(pathSensitive)
-			return PathDPItem::operator<(rhs);
+			return PathStmtDPItem<LocCond>::operator<(rhs);
 
 		if (cur != rhs.cur)
 			return cur < rhs.cur;
@@ -712,7 +713,7 @@ public:
 	 */
 	inline KSrcSnkDPItem& operator= (const KSrcSnkDPItem& rhs) {
 		if(*this!=rhs) {
-			PathDPItem::operator=(rhs);
+			PathStmtDPItem<LocCond>::operator=(rhs);
 			fieldCxt = rhs.getFieldCxt();
 		}
 		return *this;
@@ -723,7 +724,7 @@ public:
 	 */
 	inline bool operator== (const KSrcSnkDPItem& rhs) const {
 		if(pathSensitive)
-			return PathDPItem::operator==(rhs);
+			return PathStmtDPItem<LocCond>::operator==(rhs);
 
 //		return (cur == rhs.cur && curloc == rhs.getLoc() && vfpath==rhs.getCond());
 		return (cur == rhs.cur && curloc == rhs.getLoc() && getCond().getContexts() == rhs.getCond().getContexts());

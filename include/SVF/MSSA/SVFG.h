@@ -441,9 +441,9 @@ protected:
         assert(it!=PAGNodeToDefMap.end() && "PAG node does not have a definition??");
         return it->second;
     }
-    inline bool hasDef(const PAGNode* pagNode) const {
-        return (PAGNodeToDefMap.find(pagNode) != PAGNodeToDefMap.end());
-    }
+    // inline bool hasDef(const PAGNode* pagNode) const {
+    //     return (PAGNodeToDefMap.find(pagNode) != PAGNodeToDefMap.end());
+    // }
     //@}
 
     /// Given a MSSADef, set/get its def SVFG node (definition of address-taken variables)
