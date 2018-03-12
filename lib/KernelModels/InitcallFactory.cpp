@@ -147,6 +147,9 @@ void InitcallFactory::handleInitcallGroup(InitcallGroup &group) {
 	InitcallMap groupInitcallMap;
 	uint32_t groupMaxCGDepth = 0;
 
+	// Dump initcall group
+	group.dump();
+
 	std::unique_ptr<llvm::Module> InitcallModule = CloneModule(module);
 	llvm::Module &m = *InitcallModule.get();
 
