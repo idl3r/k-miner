@@ -267,15 +267,19 @@ void analysisUtil::minimizeModule(llvm::Module &module, const StringSet &relevan
 	for(auto iter = irrelevantFunctions.begin(); iter != irrelevantFunctions.end(); ++iter) {
 		llvm::Function *F = *iter;
 
+		// outs() << F->getName() << "\n";
+
 		// TODO Cause problems if we want to remove it. seems to be a bug in llvm
-		if(F->getName() == "__bpf_prog_run")
+		if(F->getName() == "__bpf_prog_run" || F->getName() == "___bpf_prog_run")
 			continue;
 		// Doesn't work in all cases. (seems to be a bug)	
 		F->deleteBody();
 		F->replaceAllUsesWith(UndefValue::get(F->getType()));
 
 		F->eraseFromParent();
-	}	
+	}
+
+	outs() << "minimizeModule done.\n";
 }
 /*!
  * Removes the variables that are not a structure pointer or an array nor a structure containing a 
