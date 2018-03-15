@@ -146,6 +146,7 @@ public:
 		debugUtil::printStringSet(nondefvars, "NonDefVars");
 		outs() << "MaxCGDepth= " << maxCGDepth << "\n";
 		outs() << "------------------\n";
+		outs().flush();
 	}
 
 	friend std::istream& operator>> (std::istream& is, Initcall &bug);

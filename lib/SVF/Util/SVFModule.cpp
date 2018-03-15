@@ -39,7 +39,7 @@
 using namespace std;
 using namespace llvm;
 
-LLVMModuleSet *SVFModule::llvmModuleSet = NULL;
+// LLVMModuleSet *SVFModule::llvmModuleSet = NULL;
 
 LLVMModuleSet::LLVMModuleSet(llvm::Module *mod) {
     moduleNum = 1;
@@ -96,13 +96,17 @@ void LLVMModuleSet::loadModules(const std::vector<std::string> &moduleNameVec) {
 void LLVMModuleSet::initialize() {
     for (u32_t i = 0; i < moduleNum; ++i) {
         Module *mod = modules[i].get();
+        size_t n = 0;
 
         /// Function
         for (Module::iterator it = mod->begin(), eit = mod->end();
                 it != eit; ++it) {
             Function *func = &*it;
             FunctionSet.push_back(func);
+
+            n++;
         }
+        outs() << "llvmModuleSet::initialize - pushed " << n << " functions\n";
 
         /// GlobalVariable
         for (Module::global_iterator it = mod->global_begin(),

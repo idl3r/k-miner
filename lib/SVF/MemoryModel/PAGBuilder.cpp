@@ -85,6 +85,8 @@ PAG* PAGBuilder::build(SVFModule svfModule) {
         }
         for (llvm::Function::iterator bit = fun.begin(), ebit = fun.end();
                 bit != ebit; ++bit) {
+            // outs() << "PAGBuilder::build - visiting " << fun.getName() << "\n";
+
             llvm::BasicBlock& bb = *bit;
             for (llvm::BasicBlock::iterator it = bb.begin(), eit = bb.end();
                     it != eit; ++it) {

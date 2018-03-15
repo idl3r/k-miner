@@ -232,7 +232,11 @@ void analysisUtil::minimizeModule(llvm::Module &module, const StringSet &relevan
 	std::set<llvm::Function*> irrelevantFunctions;
 	std::set<llvm::GlobalVariable*> irrelevantGlobalVars;
 
+	size_t numAllGVs = 0, numRelevantGVs = 0;
+
 	for(auto iter = module.global_begin(); iter != module.global_end(); ++iter) {
+		numAllGVs++;
+
 		llvm::GlobalVariable &GV = *iter;
 
 		if(relevantGVs.find(GV.getName()) == relevantGVs.end()) 
@@ -246,15 +250,25 @@ void analysisUtil::minimizeModule(llvm::Module &module, const StringSet &relevan
 		   GV.getName() == "irq_stack_ptr" || 
 		   GV.getName() == "init_per_cpu__irq_stack_union")
 			irrelevantGlobalVars.insert(&GV);
-	}	
+	}
+	outs() << "IrrelevantGlobalVars: " << irrelevantGlobalVars.size() << "\n";
 
-		// Is necessary because of a bug in the eraseFromParent function.
+	// Is necessary because of a bug in the eraseFromParent function.
 	for(auto iter = irrelevantGlobalVars.begin(); iter != irrelevantGlobalVars.end(); ++iter) {
+		numAllGVs++;
+
 		llvm::GlobalVariable *GV = *iter;
 
 		GV->replaceAllUsesWith(UndefValue::get(GV->getType()));
 		GV->eraseFromParent();
-	}	
+	}
+
+	for(auto iter = module.global_begin(); iter != module.global_end(); ++iter) {
+		numRelevantGVs++;
+	}
+	outs() << "GV numbers: " << numAllGVs << " -> " << numRelevantGVs << "\n";
+
+	outs() << "Funcs size (before): " << module.size() << "\n";
 
 	for(auto iter = module.begin(); iter != module.end(); ++iter) {
 		llvm::Function &F = *iter;
@@ -278,6 +292,8 @@ void analysisUtil::minimizeModule(llvm::Module &module, const StringSet &relevan
 
 		F->eraseFromParent();
 	}
+
+	outs() << "Funcs size (after): " << module.size() << "\n";
 
 	outs() << "minimizeModule done.\n";
 }

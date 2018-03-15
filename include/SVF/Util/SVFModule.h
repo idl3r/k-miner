@@ -203,7 +203,8 @@ public:
     typedef AliasSetType::const_iterator const_alias_iterator;
 
 private:
-    static LLVMModuleSet *llvmModuleSet;
+    // static LLVMModuleSet *llvmModuleSet;
+    LLVMModuleSet *llvmModuleSet = NULL;
 
 public:
     /// Constructors
@@ -224,13 +225,13 @@ public:
             llvmModuleSet = new LLVMModuleSet;
     }
 
-    static inline LLVMModuleSet *getLLVMModuleSet() {
+    inline LLVMModuleSet *getLLVMModuleSet() {
         if (llvmModuleSet == NULL)
             llvmModuleSet = new LLVMModuleSet;
         return llvmModuleSet;
     }
 
-    static void releaseLLVMModuleSet() {
+    void releaseLLVMModuleSet() {
         if (llvmModuleSet)
             delete llvmModuleSet;
         llvmModuleSet = NULL;

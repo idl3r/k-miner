@@ -14,6 +14,8 @@ static RegisterPass<KernelPartitioner> KERNELPARTITIONER("kernel-partitioner", "
 extern cl::opt<unsigned int> FUNCTIONLIMIT;
 
 void KernelPartitioner::initialize(llvm::Module &module) {
+	outs() << "Start kernel partitioning\n";
+
 	this->module = &module;
 	KernelContextObj *api = kernelCxt->getAPI();
 

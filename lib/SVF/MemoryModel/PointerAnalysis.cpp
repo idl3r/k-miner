@@ -146,6 +146,13 @@ void PointerAnalysis::initialize(SVFModule svfModule) {
 
         } else {
             PAGBuilder builder;
+
+            size_t n = 0;
+            for (auto iter = svfModule.begin(); iter != svfModule.end(); iter++) {
+                n++;
+            }
+
+            outs() << "Module func size: " << n << "\n";
             pag = builder.build(svfModule);
         }
 

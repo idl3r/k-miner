@@ -25,11 +25,15 @@ uint32_t InitcallFactory::maxCGDepth = 0;
 uint32_t InitcallFactory::maxNumInitcallFunctions = 0;
 uint32_t InitcallFactory::maxNumInitcallGlobalVars = 0;
 
+// #define SHOULD_INCLUDE_INITCALL(n)		((n < 1))
+#define SHOULD_INCLUDE_INITCALL(n)		(1==1)
+
 void InitcallFactory::findInitcalls() {
 //	outs() << "Find initcalls ...\n";
 	llvm::Function *initcallF = nullptr;
 	auto globalIterB = module->global_begin();
 	auto globalIterE = module->global_end();
+	size_t n = 0;
 
 	for(; globalIterB != globalIterE; ++globalIterB) {
 		std::string globalName = (*globalIterB).getName();
@@ -43,8 +47,18 @@ void InitcallFactory::findInitcalls() {
 			const llvm::Value *initcallValue = analysisUtil::stripAllCasts(C);
 			std::string initcallName = initcallValue->getName();
 			uint32_t level = getLevelOfName(globalName);
-			Initcall initcall(initcallName, level);
-			initcalls[initcallName] = initcall;	
+
+			if (level > 0 || SHOULD_INCLUDE_INITCALL(n)) {
+				Initcall initcall(initcallName, level);
+				initcalls[initcallName] = initcall;	
+			}
+			else {
+				outs() << "Skipping " << initcallName << ", level " << level << "\n";
+			}
+
+			if (level == 0) {
+				n++;
+			}
 		}
 	}
 }
@@ -153,14 +167,44 @@ void InitcallFactory::handleInitcallGroup(InitcallGroup &group) {
 	std::unique_ptr<llvm::Module> InitcallModule = CloneModule(module);
 	llvm::Module &m = *InitcallModule.get();
 
+	outs() << "InitcallFactory: before minimizeModule\n";
 	analysisUtil::minimizeModule(m, relevantFuncs, relevantGVs);
+	outs() << "InitcallFactory: after minimizeModule\n";
+
+	{
+		size_t numFuncs = 0;
+		for (auto iter = m.begin(); iter != m.end(); iter++) {
+			numFuncs++;
+		}
+		outs() << "Function number after minimizeModule: " << numFuncs << "\n";
+	}
+
+	#if 0
+	for(auto iter = initcalls.begin(); iter != initcalls.end(); ++iter) {
+		Initcall &initcall = iter->second;
+		initcall.dump();
+	}
+	#else
+	std::set<std::string>::iterator initCallNameIt;
+	for (initCallNameIt = group.initcalls.begin(); initCallNameIt != group.initcalls.end(); initCallNameIt++) {
+		string initCallName = *initCallNameIt;
+		Initcall &initcall = initcalls[initCallName];
+		initcall.dump();
+	}
+	#endif
 
 	double start = omp_get_wtime();
-	AndersenWaveDiff *anderdiff = AndersenWaveDiff::createAndersenWaveDiff(m); 
+	SVFModule svfMod = SVFModule(m);
+	// AndersenWaveDiff *anderdiff = AndersenWaveDiff::createAndersenWaveDiff(m); 
+	AndersenWaveDiff *anderdiff = AndersenWaveDiff::createAndersenWaveDiff(svfMod);
+	outs() << "InitcallFactory: after AndersenWaveDiff\n";
 
 	PTACallGraph *fpta = anderdiff->getPTACallGraph();
+	outs() << "InitcallFactory: after getPTACallGraph\n";
 	ConstraintGraph *fconsCG = anderdiff->getConstraintGraph();
+	outs() << "InitcallFactory: after getConstraintGraph\n";
 	PAG *pag = anderdiff->getPAG();
+	outs() << "InitcallFactory: after getPAG\n";
 
 	// This time the analysis will be more precise and only contains functions and globalvars
 	// that were actually used.
@@ -169,6 +213,7 @@ void InitcallFactory::handleInitcallGroup(InitcallGroup &group) {
 				    std::numeric_limits<uint32_t>::max(), 
 				    false, 
 				    groupInitcallMap);
+	outs() << "InitcallFactory: after analyze\n";
 
 	// Remove global variables that were already defined in a previous initcall.
 	filterNonDefVars(groupInitcallMap);
@@ -200,7 +245,8 @@ void InitcallFactory::preAnalysis() {
 
 	// This will be a prev-analysis to find all kinds of relevant functions and globalvars. This
 	// contains also functions that were only defined as a function pointer.
-	InitcallMap tmpInitcalls = analyze(std::numeric_limits<uint32_t>::max(), true);
+	// InitcallMap tmpInitcalls = analyze(std::numeric_limits<uint32_t>::max(), true);
+	InitcallMap tmpInitcalls = analyze(0, true);
 
 	groupInitcallsByLevel(tmpInitcalls);
 

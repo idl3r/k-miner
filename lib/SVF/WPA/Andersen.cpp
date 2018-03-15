@@ -67,6 +67,7 @@ static cl::opt<string> ReadAnder("read-ander",  cl::init(""),
  */
 void Andersen::analyze(SVFModule svfModule) {
     /// Initialization for the Solver
+    llvm::outs() << "Andersen::analyze - start initialize\n";
     initialize(svfModule);
 
 
@@ -75,9 +76,12 @@ void Andersen::analyze(SVFModule svfModule) {
         readResultsFromFile = this->readFromFile(ReadAnder);
 
     if(!readResultsFromFile) {
+        llvm::outs() << "Andersen::analyze - start solving constrains\n";
         DBOUT(DGENERAL, llvm::outs() << analysisUtil::pasMsg("Start Solving Constraints\n"));
 
+
         processAllAddr();
+        llvm::outs() << "Andersen::analyze - processAllAddr() done\n";
 
         do {
             numOfIteration++;
@@ -89,6 +93,7 @@ void Andersen::analyze(SVFModule svfModule) {
             reanalyze = false;
 
             /// Start solving constraints
+            llvm::outs() << "Andersen::analyze - solve() start\n";
             solve();
 
             double cgUpdateStart = stat->getClk();

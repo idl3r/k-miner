@@ -746,7 +746,7 @@ void SymbolTableInfo::destroy() {
     symlnfo       = NULL;
     maxFieldLimit = 0;
     totalSymNum   = 0;
-    mod           = NULL;
+    // mod           = NULL;
 }
 
 /*!
