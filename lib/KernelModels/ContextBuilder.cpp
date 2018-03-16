@@ -6,6 +6,12 @@ using namespace analysisUtil;
 cl::opt<unsigned int> FUNCTIONLIMIT("func-limit", cl::init(3000),
 		cl::desc("Max number of functions that will be analyzed."));
 
+// #define MAXBUDGET_GENERAL	(std::numeric_limits<uint32_t>::max())
+#define MAXBUDGET_GENERAL	10
+#define MAXBUDGET_CREATE	MAXBUDGET_GENERAL
+#define MAXBUDGET_ANDEROPT	MAXBUDGET_GENERAL
+#define MAXBUDGET_FLOWOPT	MAXBUDGET_GENERAL
+
 void ContextBuilder::createContext(KernelContextObj *context) {
 	outs() << "Create Context: " << context->getName() << "\n";
 	outs() << "Reduction Level 0: " << module.getFunctionList().size() << " Functions\n";
@@ -20,7 +26,7 @@ void ContextBuilder::createContext(KernelContextObj *context) {
 		std::string rootFuncName = iter;
 
 		// Approximate all functions and variables that a relevant to the given function.
-		LCGA->analyze(rootFuncName, true, true, std::numeric_limits<uint32_t>::max());
+		LCGA->analyze(rootFuncName, true, true, MAXBUDGET_CREATE);
 		const StringSet &relevantFuncs = LCGA->getForwardFuncSlice();
 		const StringSet &relevantGVs = LCGA->getRelevantGlobalVars();
 
@@ -46,7 +52,7 @@ void ContextBuilder::anderOpt(llvm::Module &module, KernelContextObj *context) {
 		std::string rootFuncName = iter;
 
 		// Determine all functions and variables that a relevant to the given function.
-		LCGA->analyze(rootFuncName, true, false, std::numeric_limits<uint32_t>::max());
+		LCGA->analyze(rootFuncName, true, false, MAXBUDGET_ANDEROPT);
 		uint32_t maxCGDepth = LCGA->getActualDepth();
 		const StringSet &relevantFuncs = LCGA->getForwardFuncSlice();
 		const StringSet &relevantGVs = LCGA->getRelevantGlobalVars();
@@ -76,7 +82,7 @@ void ContextBuilder::flowOpt(llvm::Module &module, KernelContextObj *context) {
 		std::string rootFuncName = iter;
 
 		// Determine all functions and variables that a relevant to the given function.
-		LCGA->analyze(rootFuncName, true, false, std::numeric_limits<uint32_t>::max());
+		LCGA->analyze(rootFuncName, true, false, MAXBUDGET_FLOWOPT);
 		uint32_t maxCGDepth = LCGA->getActualDepth();
 		const StringSet &relevantFuncs = LCGA->getForwardFuncSlice();
 		const StringSet &relevantGVs = LCGA->getRelevantGlobalVars();

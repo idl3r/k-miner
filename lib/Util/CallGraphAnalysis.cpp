@@ -94,7 +94,8 @@ void LocalCallGraphAnalysis::forwardProcess(const CGDPItem& item) {
 	const PTACallGraphNode *node = getNode(item.getCurNodeID());
 	const llvm::Function *F = node->getFunction();
 
-//	outs() << "forward " << node->getId() << ": " << node->getFunction()->getName() << "\n";
+	// outs() << "forward " << node->getId() << ": " << node->getFunction()->getName() << \
+	// ", worklist size = " << workListSize() << "\n";
 
 	// add the function name to the relevantFuntion set.
 	forwardFuncSlice.insert(F->getName());
@@ -120,13 +121,20 @@ void LocalCallGraphAnalysis::forwardProcess(const CGDPItem& item) {
 
 		res = analysisUtil::isCallSite(inst);
 
+		// outs() << "res :" << res << "\n";
+
 		// is it a function call?
-            	if(res) {
+        if(res) {
+			// inst->print(outs());
+			// outs() << "\n";
+
 			llvm::CallSite CS(cast<Value>(inst));
 			handleCallSite(item, &CS);
 		} else {
 			handleAssignments(item, inst);
 		}
+
+		// outs() << "worklist size: " << workListSize() << "\n\n";
 	}
 }
 
@@ -242,10 +250,40 @@ void LocalCallGraphAnalysis::backwardpropagate(const CGDPItem& item, GEDGE* edge
 
 void LocalCallGraphAnalysis::handleCallSite(const CGDPItem &item, llvm::CallSite *CS) {
 	unsigned int num_args = CS->arg_size();
+	#if 0
+	// outs() << "num_args = " << num_args << "\n";
+
+	Function *F = CS->getCalledFunction();
+	if (F) {
+		std::string funcName = F->getName();
+
+		if (funcName.substr(0, 5) == "llvm.") {
+			return;
+		}
+
+		if (funcName == "printk") {
+			return;
+		}
+	}
+	if (F) {
+		outs() << "Function called: " << F->getName() << "\n";
+	}
+	else {
+		outs() << "Function called is NULL\n";
+	}
+
+	// outs() << "IsInlineAsm " << CS->isInlineAsm() << "\n";
+	#endif
+	if (CS->isInlineAsm()) {
+		return;
+	}
 
 	// Check all arguments.
 	for(int i=0; i < num_args; i++) {
 		llvm::Value *arg = CS->getArgument(i);
+		// arg->print(outs());
+		// outs() << "\n";
+
 		const Value* ref;
 		#pragma omp critical (stripConstantCasts)
 		ref = analysisUtil::stripConstantCasts(arg);
@@ -365,11 +403,29 @@ void LocalCallGraphAnalysis::saveFuncPath(const CGDPItem &item, bool forward) {
 	NodeIdList itemPath = item.getPath();	
 	StringList funcPath;
 
+	bool toPrint = false;
+	{
+		const PTACallGraphNode *node = getNode(item.getCurNodeID());
+		const llvm::Function *F = node->getFunction();
+
+		if (F->getName() == "___perf_sw_event")	{
+			toPrint = true;
+		}
+	}
+
 	for(auto iter : itemPath) {
 		const PTACallGraphNode *node = getNode(iter);
 		const llvm::Function *F = node->getFunction();
 
 		funcPath.push_back(F->getName());	
+
+		if (toPrint) {
+			outs() << F->getName() << "->";
+		}
+	}
+
+	if (toPrint) {
+		outs() << "\n";
 	}
 
 	if(forward)
@@ -432,6 +488,34 @@ llvm::Function* LocalCallGraphAnalysis::findAliasFunc(std::string funcName) {
 }
 
 bool LocalCallGraphAnalysis::inBlackList(std::string funcName) const {
+	if (funcName.substr(0, 5) == "llvm.") {
+		return true;
+	}
+
+	if (funcName == "printk" || funcName == "vprintk_func") {
+		return true;
+	}
+
+	if (funcName == "_cond_resched") {
+		return true;
+	}
+
+	if (funcName == "schedule" ||
+		funcName == "do_task_dead" ||
+		funcName == "io_schedule" ||
+		funcName == "schedule_idle" ||
+		funcName == "schedule_preempt_disabled" ||
+		funcName == "_cond_resched" ||
+		funcName == "__cond_resched_softirq" ||
+		funcName == "preempt_schedule_irq"
+	) {
+		return true;
+	}
+
+	if (funcName.substr(0, 8) == "__printk") {
+		return true;
+	}
+
 	for(auto iter = LocalCallGraphAnalysis::blacklist.begin(); 
 			iter !=  LocalCallGraphAnalysis::blacklist.end(); ++iter) {
 		if(funcName.find(*iter) != std::string::npos)

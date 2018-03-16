@@ -160,6 +160,10 @@ public:
         return data;
     }
 
+    inline size_t size() {
+        return data_list.size();
+    }
+
     /*!
      * Clear all the data
      */

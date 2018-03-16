@@ -40,6 +40,8 @@ bool KernelContextFactory::updateContext() {
 	if(cxtRootName == "")
 		return false;
 
+	outs() << "cxtRootName = " << cxtRootName << "\n";
+
 	apiBuilder->build(cxtRootName);
 	kernelCxt->setAPI(apiBuilder->getContext());
 

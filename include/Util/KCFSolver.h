@@ -114,6 +114,10 @@ public:
 		return graph->getGNode(id);
 	}
 
+	size_t workListSize() {
+		return worklist.size();
+	}
+
 private:
 	GraphType graph;
 	FIFOWorkList<KDPItem> worklist;
