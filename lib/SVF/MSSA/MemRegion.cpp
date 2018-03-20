@@ -110,9 +110,11 @@ void MRGenerator::collectGlobals() {
     PAG* pag = pta->getPAG();
     for (PAG::iterator nIter = pag->begin(); nIter != pag->end(); ++nIter) {
         if(ObjPN* obj = dyn_cast<ObjPN>(nIter->second)) {
-            if (obj->getMemObj()->isGlobalObj()) {
-                allGlobals.set(nIter->getFirst());
-                allGlobals |= CollectPtsChain(nIter->getFirst());
+            if (obj->getMemObj()) {
+                if (obj->getMemObj()->isGlobalObj()) {
+                    allGlobals.set(nIter->getFirst());
+                    allGlobals |= CollectPtsChain(nIter->getFirst());
+                }
             }
         }
     }
@@ -204,9 +206,12 @@ void MRGenerator::collectModRefForCall() {
     DBOUT(DGENERAL, outs() << pasMsg("\t\tCollect Callsite PointsTo \n"));
 
     /// collect points-to information for callsites
-    for(PAG::CallSiteSet::const_iterator it =  pta->getPAG()->getCallSiteSet().begin(),
-            eit = pta->getPAG()->getCallSiteSet().end(); it!=eit; ++it)
-        collectCallSitePts(*it);
+    /// Check if callsite set is 0
+    if (pta->getPAG()->getCallSiteSet().size() > 0) {  
+        for(PAG::CallSiteSet::const_iterator it =  pta->getPAG()->getCallSiteSet().begin(),
+                eit = pta->getPAG()->getCallSiteSet().end(); it!=eit; ++it)
+            collectCallSitePts(*it);
+    }
 
     DBOUT(DGENERAL, outs() << pasMsg("\t\tPerform Callsite Mod-Ref \n"));
 

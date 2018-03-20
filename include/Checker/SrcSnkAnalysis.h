@@ -50,6 +50,10 @@ public:
 
 	void initialize(llvm::Module& module) {
 		kernelCxt = KernelContext::getKernelContext();
+
+		/// !!!DEBUG!!!
+		AndersenWaveDiff::releaseAndersenWaveDiff();
+
 		AndersenWaveDiff* ander = AndersenWaveDiff::createAndersenWaveDiff(module);
 		ptaCallGraph = ander->getPTACallGraph();
 

@@ -299,7 +299,12 @@ public:
         return typeInfo->isFunction();
     }
     inline bool isGlobalObj() const {
-        return typeInfo->isGlobalObj();
+        if (typeInfo) {
+            return typeInfo->isGlobalObj();
+        }
+        else {
+            return false;
+        }
     }
     inline bool isStaticObj() const {
         return typeInfo->isStaticObj();

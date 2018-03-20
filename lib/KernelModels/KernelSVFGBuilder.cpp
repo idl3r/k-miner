@@ -78,6 +78,11 @@ void KernelSVFGBuilder::collectAllocationNodes() {
 		if(isPtrInDeadFunction(cs.getInstruction()) && !isAPIFunction(caller))
 			continue;
 
+		/// !!!DEBUG!!!
+		if (caller->getName() == "__tlb_remove_page_size") {
+			continue;
+		}
+
 		if(KernelCheckerAPI::getCheckerAPI()->isKAlloc(callee) && inAPIContext(caller)){
 			const PAGNode* pagNode = pag->getCallSiteRet(cs);
 			const SVFGNode* node = getSVFG()->getDefSVFGNode(pagNode);

@@ -112,7 +112,8 @@ void KernelPartitioner::dumpPAGStat(llvm::Module &module) {
 	outs() << "Num Heap= " << numOfHeap << "\n";
 	outs() << "Num total ptr= " << total_num_ptr << "\n";
 
-	PAG::releasePAG();
+	// !!!DEBUG!!! caused UAF here?
+	// PAG::releasePAG();
 }
 
 void KernelPartitioner::mergeContexts() {

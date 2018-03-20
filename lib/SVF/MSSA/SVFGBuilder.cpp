@@ -86,6 +86,11 @@ void SVFGBuilder::releaseMemory(SVFG* vfg) {
  */
 bool SVFGBuilder::build(SVFG* graph,BVDataPTAImpl* pta) {
 
+    // Check PAG::pag
+    if (PAG::getPAG() == NULL) {
+        PAG::createPAG(false);
+    }
+
     MemSSA* mssa = new MemSSA(pta);
 
     DBOUT(DGENERAL, outs() << pasMsg("Build Memory SSA \n"));

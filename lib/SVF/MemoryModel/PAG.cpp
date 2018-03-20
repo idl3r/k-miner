@@ -44,6 +44,7 @@ u64_t PAGEdge::callEdgeLabelCounter = 0;
 PAGEdge::Inst2LabelMap PAGEdge::inst2LabelMap;
 
 PAG* PAG::pag = NULL;
+bool PAG::externalPAG = false;
 
 
 /*!

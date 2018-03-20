@@ -91,6 +91,8 @@ private:
     /// this set of candidate pointers can change during pointer resolution (e.g. adding new object nodes)
     NodeBS candidatePointers;
 
+    static bool externalPAG;
+
     /// Constructor
     PAG(bool buildFromFile) : fromFile(buildFromFile), curBB(NULL),curVal(NULL) {
         symInfo = SymbolTableInfo::Symbolnfo();
@@ -124,15 +126,26 @@ public:
     static PAG* createPAG(bool buildFromFile = false) {
         if (pag == NULL) {
             pag = new PAG(buildFromFile);
+            externalPAG = false;
         }
+
+        llvm::outs() << "PAG created @ " << (void *)pag << "\n";
         return pag;
     }
     static PAG * getPAG() {
         return pag;
     }
+    static void setPAG(PAG *newPAG) {
+        // releasePAG();
+        pag = newPAG;
+        externalPAG = true;
+    }
     static void releasePAG() {
-        if (pag)
+        if (pag && (!externalPAG)) {
+            llvm::outs() << "PAG deleted @ " << (void *)pag << "\n";
+            // llvm::outs() << "!!!DEBUG!!! Skip..." << "\n";
             delete pag;
+        }
         pag = NULL;
     }
     //@}
