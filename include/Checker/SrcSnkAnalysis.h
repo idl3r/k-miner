@@ -52,7 +52,7 @@ public:
 		kernelCxt = KernelContext::getKernelContext();
 
 		/// !!!DEBUG!!!
-		AndersenWaveDiff::releaseAndersenWaveDiff();
+		// AndersenWaveDiff::releaseAndersenWaveDiff();
 
 		AndersenWaveDiff* ander = AndersenWaveDiff::createAndersenWaveDiff(module);
 		ptaCallGraph = ander->getPTACallGraph();
