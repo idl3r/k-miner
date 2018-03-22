@@ -35,9 +35,10 @@ public:
 	}
 
 	virtual ~SrcSnkAnalysis() {
-		if (pathCondAllocator)
-			delete pathCondAllocator;
-		pathCondAllocator = NULL;
+		/// !!!DEBUG!!!
+		// if (pathCondAllocator)
+		// 	delete pathCondAllocator;
+		// pathCondAllocator = NULL;
 
 		if (svfgBuilder) {
 			delete svfg;

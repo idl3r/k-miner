@@ -107,6 +107,7 @@ protected:
 	 * Deletes all allocated bugs.
 	 */
 	void destroyBugs() {
+		/// !!!DEBUG!!!
 		for(auto &iter : bugs) {
 			const Bug *bug = iter;
 
