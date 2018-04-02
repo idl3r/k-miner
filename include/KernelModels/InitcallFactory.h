@@ -409,7 +409,7 @@ public:
 	 */
 	const StrToStrSet& getNonDefVarGVs() const {
 		return nonDefVarGVs;
-	}	
+	}
 	
 private:
 	// The gerneral callgraph. (not optimized)
@@ -439,6 +439,8 @@ private:
 	// A funtion which name contains this string as a substring is
 	// interpreted as an initcall.
 	const std::string initcallSubName = "__initcall_";
+
+	void processFuncPaths(const StrListSet &initcallFuncPaths, const string &initcallName, const StringSet &initcallFuncs);
 
 	llvm::Module* module;
 };

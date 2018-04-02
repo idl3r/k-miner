@@ -136,8 +136,9 @@ public:
 	}
 
 	virtual void dump() const {
-		outs() << "==================\n";
+		// outs() << "==================\n";
 		outs() << "Initcall " << name << ":\n";
+		#if 0
 		outs() << "Level " << level << ":\n";
 		outs() << "Num functions= " << functions.size() << "\n";
 		debugUtil::printStringSet(functions, "Functions");
@@ -145,7 +146,8 @@ public:
 		outs() << "Num nondefvars= " << nondefvars.size() << "\n";
 		debugUtil::printStringSet(nondefvars, "NonDefVars");
 		outs() << "MaxCGDepth= " << maxCGDepth << "\n";
-		outs() << "------------------\n";
+		#endif
+		// outs() << "------------------\n";
 		outs().flush();
 	}
 

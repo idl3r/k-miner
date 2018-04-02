@@ -13,6 +13,15 @@
 #include <algorithm>
 #include <stdlib.h>
 
+#include <utility>                   // for std::pair
+
+// #undef BOOST_NO_EXCEPTIONS
+
+#include <boost/graph/graph_traits.hpp>
+#include <boost/graph/adjacency_list.hpp>
+#include <boost/graph/dijkstra_shortest_paths.hpp>
+#include <boost/graph/depth_first_search.hpp>
+
 using namespace llvm;
 
 static cl::opt<std::string> PreAnalysisResults("initcall-contexts", cl::init("initcall_contexts.txt"),
@@ -27,6 +36,12 @@ uint32_t InitcallFactory::maxNumInitcallGlobalVars = 0;
 
 // #define SHOULD_INCLUDE_INITCALL(n)		((n < 1))
 #define SHOULD_INCLUDE_INITCALL(n)		(1==1)
+
+// Seems boost needs it
+void boost::throw_exception(std::exception const & e)
+{
+	assert(false);
+}
 
 void InitcallFactory::findInitcalls() {
 //	outs() << "Find initcalls ...\n";
@@ -245,13 +260,16 @@ void InitcallFactory::preAnalysis() {
 
 	// This will be a prev-analysis to find all kinds of relevant functions and globalvars. This
 	// contains also functions that were only defined as a function pointer.
-	// InitcallMap tmpInitcalls = analyze(std::numeric_limits<uint32_t>::max(), true);
-	InitcallMap tmpInitcalls = analyze(0, true);
+	InitcallMap tmpInitcalls = analyze(std::numeric_limits<uint32_t>::max(), true);
+	// InitcallMap tmpInitcalls = analyze(6, true);	/* Let's do this approx. */
+	// InitcallMap tmpInitcalls = analyze(1, true);
 
 	groupInitcallsByLevel(tmpInitcalls);
 
-	for(auto &group : initcallGroups)
+	for(auto &group : initcallGroups) {
+		// if (group.level == 6)
 		handleInitcallGroup(group);	
+	}
 
 	maxNumInitcallFunctions = getNumRelevantFunctions();
 	maxNumInitcallGlobalVars = getNumRelevantGlobalVars();
@@ -391,6 +409,7 @@ uint32_t InitcallFactory::analyze(const StringSet &initcallNames,
 
 		const StringSet &initcallFuncs = LCGA->getForwardFuncSlice();
 		const StringSet &initcallGlobalVars = LCGA->getRelevantGlobalVars();
+		const StrListSet &initcallFuncPaths = LCGA->getForwardFuncPaths();
 		StringSet initcallNonDefVars = initcallGlobalVars;
 
 		// Remove the global variables that doesn't have to be initialized. 
@@ -401,6 +420,11 @@ uint32_t InitcallFactory::analyze(const StringSet &initcallNames,
 
 		// Save the new relevant functions.
 		initcall.setFunctions(initcallFuncs);
+		if (initcallFuncs.size() >= 500) {
+			outs() << initcallName << ": " << initcallFuncs.size() << "\n";
+
+			processFuncPaths(initcallFuncPaths, initcallName, initcallFuncs);
+		}
 
 		// Save the new relevant global variables.
 		initcall.setGlobalVars(initcallGlobalVars);
@@ -423,6 +447,154 @@ uint32_t InitcallFactory::analyze(const StringSet &initcallNames,
 	}
 
 	return maxDepth;
+}
+
+typedef std::set<int> VertexSet;
+typedef std::vector<VertexSet> VertexSetList;
+
+template <typename T>
+std::set<T> getUnion(const std::set<T>& a, const std::set<T>& b)
+{
+  std::set<T> result = a;
+  result.insert(b.begin(), b.end());
+  return result;
+}
+
+class vertexset_visitor : public boost::default_dfs_visitor {
+public:
+	vertexset_visitor(VertexSetList &v) 
+	: vertexSetList(v)
+	{
+	}
+
+	template < typename Edge, typename Graph >
+	void finish_edge(Edge e, const Graph &g) {
+		// outs() << source(e, g) << "->" << target(e, g) << "\n";
+		int src = source(e, g);
+		int dst = target(e, g);
+
+		vertexSetList[src].insert(vertexSetList[dst].begin(), vertexSetList[dst].end());
+	}
+
+private:
+	VertexSetList &vertexSetList;
+};
+
+
+
+void InitcallFactory::processFuncPaths(const StrListSet &initcallFuncPaths, const string &initcallName, const StringSet &initcallFuncs)
+{
+	// for (auto &funcPath : initcallFuncPaths) {
+	// 	// outs() << funcPath << "\n";
+	// 	for (auto &funcName : funcPath) {
+	// 		outs() << funcName << "->";
+	// 	}
+	// 	outs() << "\n";
+	// }
+	using namespace boost;
+
+	// typedef property<vertex_name_t, std::string> VertexProperty;
+	// typedef property<edge_weight_t, int> EdgeProperty;
+	// typedef adjacency_list<vecS, vecS, bidirectionalS, 
+	// 	VertexProperty, EdgeProperty> Graph;
+	// typedef std::pair<std::string, std::string> Edge;
+	typedef adjacency_list<vecS, vecS, bidirectionalS> Graph;
+	typedef std::map<string, int> FuncMap;
+	typedef std::vector<string> FuncNameList;
+	typedef std::pair<int, int> Edge;
+	VertexSetList vertexSetList;
+	VertexSet *pVertexSet;
+
+	FuncMap funcMap;
+	FuncNameList funcNameList;
+
+	funcMap.clear();
+
+	funcMap.insert(std::pair<string, int>(initcallName, 0));
+	pVertexSet = new VertexSet();
+	pVertexSet->insert(0);
+	vertexSetList.push_back(*pVertexSet);
+	funcNameList.push_back(initcallName);
+
+	int funcId = 1;
+	for (auto funcName : initcallFuncs) {
+		funcMap.insert(std::pair<string, int>(funcName, funcId));
+
+		pVertexSet = new VertexSet();
+		pVertexSet->insert(funcId);
+		vertexSetList.push_back(*pVertexSet);
+		funcNameList.push_back(funcName);
+
+		funcId++;
+	}
+
+	// for (auto e : funcMap) {
+	// 	if (e.second == 0) {
+	// 		outs() << e.first << "\n";
+	// 	}
+
+	// 	if (e.first == "device_add" ||
+	// 		e.first == "input_register_device") {
+	// 		outs() << e.first << ":" << e.second << "\n";
+	// 	}
+	// }
+
+	Graph g(initcallFuncs.size() + 1);
+
+	for (auto &funcPath : initcallFuncPaths) {
+		bool toPrint = false;
+		auto it = funcPath.begin();
+		// it++;
+		for (; it != funcPath.end(); it++) {
+			auto nx = std::next(it, 1);
+			if (nx == funcPath.end()) {
+				break;
+			}
+
+			if (funcMap.find(*nx) == funcMap.end()) {
+				funcMap.insert(std::pair<string, int>(*nx, funcId));
+
+				pVertexSet = new VertexSet();
+				pVertexSet->insert(funcId);
+				vertexSetList.push_back(*pVertexSet);
+				funcNameList.push_back(*nx);
+
+				funcId++;
+			}
+
+			int src = funcMap[*it];
+			int dst = funcMap[*nx];
+
+			if (dst == 0) {
+				toPrint = true;
+			}
+
+			if (vertexSetList[src].find(dst) == vertexSetList[src].end()) {
+				// add_edge(funcMap[*it], funcMap[*nx], g);
+				add_edge(src, dst, g);
+				vertexSetList[src].insert(dst);
+			}
+		}
+
+		if (toPrint) {
+			for (auto &funcName : funcPath) {
+				outs() << funcName << "(" << funcMap[funcName] << ")->";
+			}
+			outs() << "\n";			
+		}
+	}
+
+	vertexset_visitor vis(vertexSetList);
+	depth_first_search(g, visitor(vis));
+
+	for (int i = 0; i < funcId; i++) {
+		if (vertexSetList[i].size() >= 500) {
+			outs() << "(" << funcNameList[i] << ":" << vertexSetList[i].size() << ") ";
+		}
+	}
+	outs() << "\n";
+
+	return;
 }
 
 StringSet InitcallFactory::getAllInitcallFuncs(const InitcallMap &initcalls) const {

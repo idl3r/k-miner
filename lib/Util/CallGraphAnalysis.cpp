@@ -408,7 +408,14 @@ void LocalCallGraphAnalysis::saveFuncPath(const CGDPItem &item, bool forward) {
 		const PTACallGraphNode *node = getNode(item.getCurNodeID());
 		const llvm::Function *F = node->getFunction();
 
-		if (F->getName() == "___perf_sw_event")	{
+		std::string funcName = F->getName();
+
+		if (funcName == "___perf_sw_event" ||
+			// funcName == "__e1000_shutdown" ||
+			funcName == "SyS_chmod" ||
+			funcName == "__acpi_map_table" ||
+			false
+		)	{
 			toPrint = true;
 		}
 	}
@@ -426,6 +433,7 @@ void LocalCallGraphAnalysis::saveFuncPath(const CGDPItem &item, bool forward) {
 
 	if (toPrint) {
 		outs() << "\n";
+		// assert(false);
 	}
 
 	if(forward)
@@ -501,13 +509,26 @@ bool LocalCallGraphAnalysis::inBlackList(std::string funcName) const {
 	}
 
 	if (funcName == "schedule" ||
+		funcName == "yield" ||
 		funcName == "do_task_dead" ||
+		funcName == "__cond_resched_lock" ||
 		funcName == "io_schedule" ||
 		funcName == "schedule_idle" ||
 		funcName == "schedule_preempt_disabled" ||
 		funcName == "_cond_resched" ||
 		funcName == "__cond_resched_softirq" ||
-		funcName == "preempt_schedule_irq"
+		funcName == "preempt_schedule_irq" ||
+		funcName == "kobject_uevent" ||
+		funcName == "call_usermodehelper_setup" ||
+		funcName == "call_usermodehelper" ||
+		funcName == "up" ||
+		funcName == "__up" ||
+		funcName == "wake_up_nohz_cpu" ||
+		funcName == "wake_up_process" ||
+
+		funcName == "__acpi_map_table" ||
+		funcName == "SyS_chmod" ||
+		false 
 	) {
 		return true;
 	}
@@ -518,7 +539,8 @@ bool LocalCallGraphAnalysis::inBlackList(std::string funcName) const {
 
 	for(auto iter = LocalCallGraphAnalysis::blacklist.begin(); 
 			iter !=  LocalCallGraphAnalysis::blacklist.end(); ++iter) {
-		if(funcName.find(*iter) != std::string::npos)
+		// if(funcName.find(*iter) != std::string::npos)
+		if (funcName == *iter)
 			return true;
 	}
 	return false;
