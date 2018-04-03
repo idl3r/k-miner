@@ -440,7 +440,7 @@ private:
 	// interpreted as an initcall.
 	const std::string initcallSubName = "__initcall_";
 
-	void processFuncPaths(const StrListSet &initcallFuncPaths, const string &initcallName, const StringSet &initcallFuncs);
+	bool processFuncPaths(const StrListSet &initcallFuncPaths, const string &initcallName, const StringSet &initcallFuncs, LocalCallGraphAnalysis *LCGA);
 
 	llvm::Module* module;
 };

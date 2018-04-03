@@ -7,6 +7,9 @@
 #include "SVF/Util/AnalysisUtil.h"
 #include "Util/KMinerStat.h"
 
+#include <iostream>
+#include <fstream>
+
 using namespace llvm;
 
 typedef KCFSolver<PTACallGraph*, CGDPItem> LCGASolver;
@@ -155,6 +158,21 @@ public:
 	bool hasBlackList() const;
 
 	void importBlackList();
+
+	void addBlackList(const std::string &funcName)
+	{
+		LocalCallGraphAnalysis::blacklist.insert(funcName);
+	}
+
+	static void dumpBlackList(const std::string &filename) {
+		std::ofstream outf;
+
+		outf.open(filename);
+		for (auto funcName : blacklist) {
+			outf << funcName << "\n";
+		}
+		outf.close();	
+	}
 
 private:
 	// The number of nodes the graph was forwarded/backwarded.

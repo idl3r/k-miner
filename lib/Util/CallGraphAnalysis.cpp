@@ -410,6 +410,7 @@ void LocalCallGraphAnalysis::saveFuncPath(const CGDPItem &item, bool forward) {
 
 		std::string funcName = F->getName();
 
+#if 0
 		if (funcName == "___perf_sw_event" ||
 			// funcName == "__e1000_shutdown" ||
 			funcName == "SyS_chmod" ||
@@ -418,6 +419,7 @@ void LocalCallGraphAnalysis::saveFuncPath(const CGDPItem &item, bool forward) {
 		)	{
 			toPrint = true;
 		}
+#endif
 	}
 
 	for(auto iter : itemPath) {
@@ -496,10 +498,11 @@ llvm::Function* LocalCallGraphAnalysis::findAliasFunc(std::string funcName) {
 }
 
 bool LocalCallGraphAnalysis::inBlackList(std::string funcName) const {
-	if (funcName.substr(0, 5) == "llvm.") {
+	if (funcName.substr(0, 5) == "llvm.") {	// ignore llvm symbols
 		return true;
 	}
 
+#if 0
 	if (funcName == "printk" || funcName == "vprintk_func") {
 		return true;
 	}
@@ -536,6 +539,7 @@ bool LocalCallGraphAnalysis::inBlackList(std::string funcName) const {
 	if (funcName.substr(0, 8) == "__printk") {
 		return true;
 	}
+#endif
 
 	for(auto iter = LocalCallGraphAnalysis::blacklist.begin(); 
 			iter !=  LocalCallGraphAnalysis::blacklist.end(); ++iter) {

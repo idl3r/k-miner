@@ -29,6 +29,10 @@ static cl::opt<std::string> PreAnalysisResults("initcall-contexts", cl::init("in
 
 #define PREANALYSISRESULTS PreAnalysisResults != ""
 
+/* pruning definitions */
+#define THRESHOLD_DEPTH		(1)
+#define THRESHOLD_CALLNUM	(200)
+
 InitcallFactory* InitcallFactory::initcallFactory = nullptr;
 uint32_t InitcallFactory::maxCGDepth = 0;
 uint32_t InitcallFactory::maxNumInitcallFunctions = 0;
@@ -367,6 +371,8 @@ InitcallMap InitcallFactory::analyze(uint32_t depth, bool broad) {
 
 //	outs() << "actualdepth= " << actualdepth << "\n";
 
+	LocalCallGraphAnalysis::dumpBlackList("blacklist_auto");
+
 	return tmpInitcallMap;
 }
 
@@ -389,52 +395,57 @@ uint32_t InitcallFactory::analyze(const StringSet &initcallNames,
 	// all the relevant functions.
 	#pragma omp for
 	for(int i=0; i < numInitcalls; ++i) {
+		bool rerun;
 		auto initcallIter = initcallNames.begin();
 		advance(initcallIter, i);
 
 		std::string initcallName = *initcallIter;
 		const Initcall &origInitcall = initcalls[initcallName];
 
-		LCGA->analyze(initcallName, true, broad, depth);
+		do {
+			rerun = false;
 
-		tmpDepth = LCGA->getActualDepth();
+			LCGA->analyze(initcallName, true, broad, depth);
 
-		if(tmpDepth > maxDepth) {
-			#pragma omp critical (maxDepth)
-			{
-			if(tmpDepth > maxDepth) 
-				maxDepth = tmpDepth;
+			tmpDepth = LCGA->getActualDepth();
+
+			if(tmpDepth > maxDepth) {
+				#pragma omp critical (maxDepth)
+				{
+				if(tmpDepth > maxDepth) 
+					maxDepth = tmpDepth;
+				}
 			}
-		}
 
-		const StringSet &initcallFuncs = LCGA->getForwardFuncSlice();
-		const StringSet &initcallGlobalVars = LCGA->getRelevantGlobalVars();
-		const StrListSet &initcallFuncPaths = LCGA->getForwardFuncPaths();
-		StringSet initcallNonDefVars = initcallGlobalVars;
+			const StringSet &initcallFuncs = LCGA->getForwardFuncSlice();
+			const StringSet &initcallGlobalVars = LCGA->getRelevantGlobalVars();
+			const StrListSet &initcallFuncPaths = LCGA->getForwardFuncPaths();
+			StringSet initcallNonDefVars = initcallGlobalVars;
 
-		// Remove the global variables that doesn't have to be initialized. 
-		// e.g simple integer pointer
-		analysisUtil::filterNonStructTypes(*module, initcallNonDefVars);
+			// Remove the global variables that doesn't have to be initialized. 
+			// e.g simple integer pointer
+			analysisUtil::filterNonStructTypes(*module, initcallNonDefVars);
 
-		Initcall initcall(initcallName, origInitcall.getLevel());
+			Initcall initcall(initcallName, origInitcall.getLevel());
 
-		// Save the new relevant functions.
-		initcall.setFunctions(initcallFuncs);
-		if (initcallFuncs.size() >= 500) {
-			outs() << initcallName << ": " << initcallFuncs.size() << "\n";
+			// Save the new relevant functions.
+			initcall.setFunctions(initcallFuncs);
+			if (initcallFuncs.size() >= THRESHOLD_CALLNUM/* && initcallName != "aes_init"*/) {
+				outs() << initcallName << ": " << initcallFuncs.size() << "\n";
 
-			processFuncPaths(initcallFuncPaths, initcallName, initcallFuncs);
-		}
+				rerun = processFuncPaths(initcallFuncPaths, initcallName, initcallFuncs, LCGA);
+			}
 
-		// Save the new relevant global variables.
-		initcall.setGlobalVars(initcallGlobalVars);
+			// Save the new relevant global variables.
+			initcall.setGlobalVars(initcallGlobalVars);
 
-		// Save the new relevant global structures (-pointer) or arrays.
-		initcall.setNonDefVars(initcallNonDefVars);
+			// Save the new relevant global structures (-pointer) or arrays.
+			initcall.setNonDefVars(initcallNonDefVars);
 
-		initcall.setMaxCGDepth(tmpDepth);
+			initcall.setMaxCGDepth(tmpDepth);
 
-		(*localInitcalls)[initcallName] = initcall;
+			(*localInitcalls)[initcallName] = initcall;
+		} while (rerun);
 	}
 
 	#pragma omp barrier
@@ -482,7 +493,7 @@ private:
 
 
 
-void InitcallFactory::processFuncPaths(const StrListSet &initcallFuncPaths, const string &initcallName, const StringSet &initcallFuncs)
+bool InitcallFactory::processFuncPaths(const StrListSet &initcallFuncPaths, const string &initcallName, const StringSet &initcallFuncs, LocalCallGraphAnalysis *LCGA)
 {
 	// for (auto &funcPath : initcallFuncPaths) {
 	// 	// outs() << funcPath << "\n";
@@ -493,12 +504,15 @@ void InitcallFactory::processFuncPaths(const StrListSet &initcallFuncPaths, cons
 	// }
 	using namespace boost;
 
+	bool rc = false;
+
 	// typedef property<vertex_name_t, std::string> VertexProperty;
 	// typedef property<edge_weight_t, int> EdgeProperty;
 	// typedef adjacency_list<vecS, vecS, bidirectionalS, 
 	// 	VertexProperty, EdgeProperty> Graph;
 	// typedef std::pair<std::string, std::string> Edge;
 	typedef adjacency_list<vecS, vecS, bidirectionalS> Graph;
+	typedef Graph::vertex_descriptor Vertex;
 	typedef std::map<string, int> FuncMap;
 	typedef std::vector<string> FuncNameList;
 	typedef std::pair<int, int> Edge;
@@ -514,6 +528,7 @@ void InitcallFactory::processFuncPaths(const StrListSet &initcallFuncPaths, cons
 	pVertexSet = new VertexSet();
 	pVertexSet->insert(0);
 	vertexSetList.push_back(*pVertexSet);
+	delete pVertexSet;
 	funcNameList.push_back(initcallName);
 
 	int funcId = 1;
@@ -523,6 +538,7 @@ void InitcallFactory::processFuncPaths(const StrListSet &initcallFuncPaths, cons
 		pVertexSet = new VertexSet();
 		pVertexSet->insert(funcId);
 		vertexSetList.push_back(*pVertexSet);
+		delete pVertexSet;
 		funcNameList.push_back(funcName);
 
 		funcId++;
@@ -557,6 +573,7 @@ void InitcallFactory::processFuncPaths(const StrListSet &initcallFuncPaths, cons
 				pVertexSet = new VertexSet();
 				pVertexSet->insert(funcId);
 				vertexSetList.push_back(*pVertexSet);
+				delete pVertexSet;
 				funcNameList.push_back(*nx);
 
 				funcId++;
@@ -587,14 +604,33 @@ void InitcallFactory::processFuncPaths(const StrListSet &initcallFuncPaths, cons
 	vertexset_visitor vis(vertexSetList);
 	depth_first_search(g, visitor(vis));
 
+	// std::vector<int> depths = std::vector<int>(num_vertices(g));
+	graph_traits<Graph>::vertices_size_type distance[num_vertices(g)];
+	std::fill_n(distance, num_vertices(g), 0);
+
+	Vertex s = vertex(0, g);
+	breadth_first_search(g, s, 
+		visitor(
+			make_bfs_visitor(
+				record_distances(distance, boost::on_tree_edge()))));
+
+
 	for (int i = 0; i < funcId; i++) {
-		if (vertexSetList[i].size() >= 500) {
-			outs() << "(" << funcNameList[i] << ":" << vertexSetList[i].size() << ") ";
+		if (vertexSetList[i].size() >= THRESHOLD_CALLNUM) {
+			outs() << "(" << funcNameList[i] << "(" << distance[i] << "):" << vertexSetList[i].size() << ") ";
+
+			if (distance[i] >= THRESHOLD_DEPTH) {
+				LCGA->addBlackList(funcNameList[i]);
+				rc = true;
+			}
 		}
 	}
 	outs() << "\n";
 
-	return;
+	if (rc) {
+		outs() << "rerun\n";
+	}
+	return rc;
 }
 
 StringSet InitcallFactory::getAllInitcallFuncs(const InitcallMap &initcalls) const {
